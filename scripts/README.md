@@ -1,41 +1,146 @@
-# 自動化スクリプトディレクトリ
+# 自動化スクリプト
 
-このディレクトリでは、ワークフローを自動化するスクリプトを管理します。
+このディレクトリには、ワークフローを効率化する自動化スクリプトが含まれています。
 
-## 📁 将来実装予定の機能
+---
 
-現在は手動でワークフローを実行していますが、将来的に以下のスクリプトを実装予定です:
+## 📋 利用可能なスクリプト
 
-### 1. 記事生成スクリプト
-- `generate-article.py`: AIエージェントAPIを使用した記事自動生成
-- `create-infographic.py`: インフォグラフィック自動生成
+### 1. add_idea.py - 記事ネタ追加
 
-### 2. リライトスクリプト
-- `rewrite-for-linkedin.py`: LinkedIn向け自動リライト
-- `create-x-thread.py`: X向けスレッド自動生成
+**機能:**
+- 対話形式で記事ネタを入力
+- `ideas/ideas-list.md`に自動追加
+- 記事IDを自動採番
 
-### 3. 投稿スクリプト
-- `post-to-note.py`: Note自動投稿
-- `post-to-linkedin.py`: LinkedIn自動投稿
-- `post-to-x.py`: X自動投稿
+**使用方法:**
+```bash
+python3 scripts/add_idea.py
+```
 
-### 4. 管理スクリプト
-- `update-ideas-list.py`: アイデアリスト自動更新
-- `generate-report.py`: パフォーマンスレポート自動生成
+**入力項目:**
+- タイトル案
+- カテゴリ(テクノロジー、ビジネス、マーケティング、副業、AI・自動化、その他)
+- 優先度(高、中、低)
+- メモ(任意)
 
-## 🛠️ 技術スタック候補
+---
 
-- **Python**: メインのスクリプト言語
-- **API**: 各プラットフォームのAPI
-- **AI**: OpenAI API, Gemini API など
+### 2. create_article.py - 新規記事作成
 
-## 📝 スクリプト開発のガイドライン
+**機能:**
+- `ideas-list.md`から記事情報を取得
+- テンプレートから記事ファイルを自動生成
+- 調査ファイルも同時に作成
+- ステータスを「執筆中」に自動更新
 
-1. **モジュール化**: 各機能を独立したスクリプトとして実装
-2. **エラーハンドリング**: 適切なエラー処理を実装
-3. **ログ記録**: 実行ログを記録
-4. **設定ファイル**: APIキーなどは環境変数で管理
+**使用方法:**
+```bash
+python3 scripts/create_article.py <記事ID>
+```
 
-## 🚀 今後の展開
+**作成されるファイル:**
+- `articles/drafts/YYYY-MM-DD-<記事ID>.md`: 記事本文
+- `research/topics/research-<記事ID>.md`: 調査結果
 
-Phase 3(自動化・効率化の検討)とPhase 4(具体的な開発)で、これらのスクリプトを順次実装していきます。
+---
+
+### 3. publish_article.py - 記事公開処理
+
+**機能:**
+- 記事を`drafts/`から`published/`に移動
+- 記事メタ情報を更新(ステータス、公開日、URL)
+- `ideas-list.md`のステータスを「完了」に更新
+
+**使用方法:**
+```bash
+python3 scripts/publish_article.py <記事ID> <Note URL>
+```
+
+---
+
+## 🔄 ワークフロー全体
+
+```
+1. 記事ネタ追加
+   ↓
+   python3 scripts/add_idea.py
+   ↓
+2. 新規記事作成
+   ↓
+   python3 scripts/create_article.py <ID>
+   ↓
+3. 調査・執筆(手動)
+   ↓
+4. インフォグラフィック作成(手動)
+   ↓
+5. Note投稿(手動)
+   ↓
+6. 記事公開処理
+   ↓
+   python3 scripts/publish_article.py <ID> <URL>
+   ↓
+7. LinkedIn/X投稿(手動)
+```
+
+---
+
+## 🛠️ 将来実装予定の機能
+
+以下のスクリプトは将来的に実装予定です:
+
+### 記事生成スクリプト
+- `generate_article.py`: AIエージェントAPIを使用した記事自動生成
+- `create_infographic.py`: インフォグラフィック自動生成
+
+### リライトスクリプト
+- `rewrite_for_linkedin.py`: LinkedIn向け自動リライト
+- `create_x_thread.py`: X向けスレッド自動生成
+
+### 投稿スクリプト
+- `post_to_note.py`: Note自動投稿
+- `post_to_linkedin.py`: LinkedIn自動投稿
+- `post_to_x.py`: X自動投稿
+
+### 管理スクリプト
+- `update_ideas_list.py`: アイデアリスト自動更新
+- `generate_report.py`: パフォーマンスレポート自動生成
+
+---
+
+## 💡 使い方のコツ
+
+### エイリアスを設定(オプション)
+
+Macの`~/.zshrc`または`~/.bash_profile`に追加:
+
+```bash
+# SNSコンテンツ自動化エイリアス
+alias sns-cd='cd /Volumes/WDBLACK_2TB/Git/sns-content-automation'
+alias sns-idea='python3 /Volumes/WDBLACK_2TB/Git/sns-content-automation/scripts/add_idea.py'
+alias sns-create='python3 /Volumes/WDBLACK_2TB/Git/sns-content-automation/scripts/create_article.py'
+alias sns-publish='python3 /Volumes/WDBLACK_2TB/Git/sns-content-automation/scripts/publish_article.py'
+```
+
+---
+
+## 🐛 トラブルシューティング
+
+### エラー: Permission denied
+```bash
+chmod +x scripts/*.py
+```
+
+### エラー: ファイルが見つからない
+```bash
+pwd
+cd /Volumes/WDBLACK_2TB/Git/sns-content-automation
+```
+
+---
+
+## 🔗 関連ドキュメント
+
+- [QUICKSTART.md](../docs/QUICKSTART.md): クイックスタートガイド
+- [USAGE.md](../docs/USAGE.md): 詳細な使い方
+- [PROMPTS.md](../docs/PROMPTS.md): AIエージェント用プロンプト集
