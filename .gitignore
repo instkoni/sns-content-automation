@@ -65,3 +65,11 @@ env/
 # Personal notes (optional)
 personal-notes/
 scratch/
+
+# Browser automation cache and data
+instkoni-automation/browser-data/
+instkoni-automation/.browser-data/
+**/browser-data/
+**/.browser-data/
+**/Cache/
+**/GraphiteDawnCache/
