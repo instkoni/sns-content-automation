@@ -1,0 +1,18 @@
+{
+  "name": "instkoni-automation",
+  "version": "1.0.0",
+  "description": "Genspark automation tool for infographic generation",
+  "main": "genspark_automation.ts",
+  "scripts": {
+    "image": "npx ts-node genspark_automation.ts image",
+    "image:debug": "npx ts-node genspark_automation.ts image --debug"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}
