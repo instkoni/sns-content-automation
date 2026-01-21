@@ -204,12 +204,6 @@ ${article.content}`;
         await page.waitForTimeout(2000);
         await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_02_after_settings_click.png') });
 
-        // デバッグモード：一時停止
-        if (DEBUG_MODE) {
-            console.log('🔍 デバッグ: 現在の状態を確認してください。Resumeで続行。');
-            await page.pause();
-        }
-
         // 2K を選択
         console.log('📐 2K を探しています...');
         const size2K = page.getByText('2K', { exact: true });
@@ -471,92 +465,87 @@ ${article.content}`;
                 await page.pause();
             }
 
-            // キャンバスモードの右側で画像にチェックを入れる
-            console.log('\n🖼️ 画像を選択中...');
+            // 各画像をクリックして詳細ビューを開き、右下のダウンロードボタンでダウンロード
+            console.log('\n📥 各画像をクリックしてダウンロードします...');
 
-            // チェックボックスまたは選択可能な画像を探す
-            const checkboxSelectors = [
-                '[class*="canvas"] input[type="checkbox"]',
-                '[class*="canvas"] [class*="check"]',
-                '[class*="select"] input[type="checkbox"]',
-                '[class*="image"] input[type="checkbox"]',
-                '[class*="thumbnail"] input[type="checkbox"]',
-                'input[type="checkbox"]'
-            ];
+            let downloadedCount = 0;
+            for (let i = 0; i < imageUrls.length; i++) {
+                const url = imageUrls[i];
+                const imgElement = await page.$(`img[src="${url}"]`);
 
-            let checkedCount = 0;
-            for (const selector of checkboxSelectors) {
-                const checkboxes = await page.$$(selector);
-                if (checkboxes.length > 0) {
-                    console.log(`   📍 チェックボックス発見: ${selector} (${checkboxes.length}個)`);
-                    for (const checkbox of checkboxes) {
-                        const isChecked = await checkbox.isChecked().catch(() => false);
-                        if (!isChecked) {
-                            await checkbox.click();
-                            checkedCount++;
-                            await page.waitForTimeout(300);
+                if (!imgElement) {
+                    console.log(`   ⚠️ [${i + 1}/${imageUrls.length}] 画像要素が見つかりません`);
+                    continue;
+                }
+
+                console.log(`   🖼️ [${i + 1}/${imageUrls.length}] 画像をクリック中...`);
+
+                // 画像をクリックして詳細ビューを開く
+                await imgElement.click();
+                await page.waitForTimeout(1500);
+
+                // 右下のダウンロードボタンを探す
+                const downloadSelectors = [
+                    'button:has-text("Download")',
+                    'button:has-text("ダウンロード")',
+                    '[class*="download"]',
+                    'button[class*="download"]',
+                    '[aria-label*="download"]',
+                    '[aria-label*="Download"]',
+                    '[title*="download"]',
+                    '[title*="Download"]',
+                    'a[download]',
+                    'svg[class*="download"]'
+                ];
+
+                // ダウンロードイベントをリッスン
+                const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
+
+                let downloadClicked = false;
+                for (const selector of downloadSelectors) {
+                    const btns = await page.$$(selector);
+                    for (const btn of btns) {
+                        const isVisible = await btn.isVisible().catch(() => false);
+                        if (isVisible) {
+                            console.log(`      📍 ダウンロードボタン発見: ${selector}`);
+                            await btn.click();
+                            downloadClicked = true;
+                            break;
                         }
                     }
-                    break;
+                    if (downloadClicked) break;
                 }
-            }
 
-            // チェックボックスが見つからない場合、画像自体をクリックして選択
-            if (checkedCount === 0) {
-                console.log('   🔍 画像を直接クリックして選択を試みます...');
-                for (const url of imageUrls) {
-                    const imgElement = await page.$(`img[src="${url}"]`);
-                    if (imgElement) {
-                        await imgElement.click();
-                        checkedCount++;
-                        await page.waitForTimeout(500);
+                if (downloadClicked) {
+                    // ダウンロードを待機
+                    const download = await downloadPromise;
+
+                    if (download) {
+                        const suggestedFilename = download.suggestedFilename();
+                        const ext = path.extname(suggestedFilename) || '.png';
+                        const filename = `${timestamp}_${articleName}_${String(i + 1).padStart(2, '0')}${ext}`;
+                        const downloadPath = path.join(folderPath, filename);
+                        await download.saveAs(downloadPath);
+
+                        const stats = fs.statSync(downloadPath);
+                        console.log(`      ✅ ${filename} (${Math.round(stats.size / 1024)}KB)`);
+                        downloadedCount++;
+                    } else {
+                        console.log(`      ⚠️ ダウンロードイベントを検出できませんでした`);
                     }
+                } else {
+                    console.log(`      ⚠️ ダウンロードボタンが見つかりません`);
                 }
+
+                // 詳細ビューを閉じる（Escキーまたは背景クリック）
+                await page.keyboard.press('Escape');
+                await page.waitForTimeout(1000);
             }
 
-            console.log(`   ✅ ${checkedCount}枚の画像を選択しました`);
-            await page.waitForTimeout(1000);
-            await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_selected.png') });
+            // ダウンロードできなかった場合はスクリーンショットでフォールバック
+            if (downloadedCount === 0) {
+                console.log('\n   📸 フォールバック: 画像をスクリーンショットで保存します');
 
-            // ダウンロードボタンを探してクリック
-            console.log('\n📥 ダウンロードボタンを探しています...');
-
-            const downloadSelectors = [
-                'button:has-text("Download")',
-                'button:has-text("ダウンロード")',
-                '[class*="download"] button',
-                'button[class*="download"]',
-                'a:has-text("Download")',
-                'a:has-text("ダウンロード")',
-                '[aria-label*="download"]',
-                '[aria-label*="Download"]',
-                '[title*="download"]',
-                '[title*="Download"]',
-                'svg[class*="download"]'
-            ];
-
-            // ダウンロードイベントをリッスン
-            const downloadPromise = page.waitForEvent('download', { timeout: 30000 }).catch(() => null);
-
-            let downloadClicked = false;
-            for (const selector of downloadSelectors) {
-                const btn = await page.$(selector);
-                if (btn) {
-                    const isVisible = await btn.isVisible();
-                    if (isVisible) {
-                        console.log(`   📍 ダウンロードボタン発見: ${selector}`);
-                        await btn.click();
-                        downloadClicked = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!downloadClicked) {
-                console.log('   ⚠️ ダウンロードボタンが見つかりません');
-                console.log('   📸 フォールバック: 画像をスクリーンショットで保存します');
-
-                // フォールバック: スクリーンショットで保存
                 for (let i = 0; i < imageUrls.length; i++) {
                     const url = imageUrls[i];
                     const filename = `${timestamp}_${articleName}_${String(i + 1).padStart(2, '0')}.png`;
@@ -569,25 +558,9 @@ ${article.content}`;
                         console.log(`   ✅ ${filename} (${Math.round(stats.size / 1024)}KB)`);
                     }
                 }
-            } else {
-                // ダウンロードを待機
-                console.log('   ⏳ ダウンロードを待機中...');
-                const download = await downloadPromise;
-
-                if (download) {
-                    // ダウンロードされたファイルを保存
-                    const suggestedFilename = download.suggestedFilename();
-                    const downloadPath = path.join(folderPath, `${timestamp}_${articleName}_${suggestedFilename}`);
-                    await download.saveAs(downloadPath);
-
-                    const stats = fs.statSync(downloadPath);
-                    console.log(`   ✅ ダウンロード完了: ${suggestedFilename} (${Math.round(stats.size / 1024)}KB)`);
-                } else {
-                    console.log('   ⚠️ ダウンロードイベントを検出できませんでした');
-                }
             }
 
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(1000);
 
             // 保存されたファイルを一覧表示
             const savedFiles = fs.readdirSync(folderPath).filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp'));
