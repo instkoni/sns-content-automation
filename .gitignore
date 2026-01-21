@@ -73,3 +73,11 @@ instkoni-automation/.browser-data/
 **/.browser-data/
 **/Cache/
 **/GraphiteDawnCache/
+
+# Manusのブラウザデータを無視
+instkoni-automation/browser-data-manus/
+
+# その他の一時ファイルや環境変数ファイルも無視する
+instkoni-automation/temp/
+instkoni-automation/dist/
+*.env
