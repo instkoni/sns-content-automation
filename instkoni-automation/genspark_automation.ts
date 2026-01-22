@@ -245,99 +245,122 @@ ${article.content}`;
         await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_03_settings_done.png') });
         console.log('✅ 設定完了');
 
-        // ========== Image1にキャラクター画像をアップロード ==========
-        console.log('🖼️ Image1にキャラクター画像をアップロードします...');
+        // ========== Image1にキャラクター画像をアップロード（ドラッグ＆ドロップ方式） ==========
+        console.log('🖼️ Image1にキャラクター画像をアップロードします（ドラッグ＆ドロップ）...');
 
         // キャラクター画像が存在するか確認
         if (fs.existsSync(CHARACTER_IMAGE_PATH)) {
             console.log(`📁 キャラクター画像: ${CHARACTER_IMAGE_PATH}`);
 
-            // Image1 ボタンを探す（様々なセレクタを試行）
-            const image1Selectors = [
-                'button:has-text("Image1")',
-                'button:has-text("Image 1")',
-                '[class*="image1"]',
-                '[class*="image-upload"]',
-                '[data-testid*="image1"]',
-                '[aria-label*="Image1"]',
-                '[aria-label*="image"]',
-                'button:has-text("画像1")',
-                'button:has-text("Add Image")',
-                'button:has-text("画像を追加")',
+            // 画像ファイルを読み込み
+            const imageBuffer = fs.readFileSync(CHARACTER_IMAGE_PATH);
+            const imageBase64 = imageBuffer.toString('base64');
+            const mimeType = 'image/png';
+
+            // ドロップターゲットを探す（テキストエリアまたはドロップゾーン）
+            const dropTargetSelectors = [
+                'textarea',
+                '[class*="drop"]',
                 '[class*="upload"]',
-                'label[for*="image"]'
+                '[class*="input-area"]',
+                '[contenteditable="true"]',
+                'form',
+                '[class*="chat"]',
+                '[class*="message"]'
             ];
 
-            let image1Clicked = false;
-            for (const selector of image1Selectors) {
+            let dropTarget = null;
+            for (const selector of dropTargetSelectors) {
                 try {
-                    const elements = await page.$$(selector);
-                    for (const el of elements) {
+                    const el = await page.$(selector);
+                    if (el) {
                         const isVisible = await el.isVisible().catch(() => false);
                         if (isVisible) {
-                            const text = await el.textContent().catch(() => '');
-                            console.log(`   📍 Image1候補発見: ${selector} - "${text?.substring(0, 30)}"`);
-                            await el.click();
-                            image1Clicked = true;
-                            console.log('   ✅ Image1ボタンをクリック');
+                            dropTarget = el;
+                            console.log(`   📍 ドロップターゲット発見: ${selector}`);
                             break;
                         }
                     }
-                    if (image1Clicked) break;
                 } catch {
                     continue;
                 }
             }
 
-            if (image1Clicked) {
-                await page.waitForTimeout(1000);
+            if (dropTarget) {
+                // ドラッグ＆ドロップをシミュレート
+                console.log('   🎯 ドラッグ＆ドロップを実行中...');
 
-                // ファイル入力を探してアップロード
-                const fileInputSelectors = [
-                    'input[type="file"]',
-                    'input[accept*="image"]',
-                    '[class*="file-input"]'
-                ];
+                await page.evaluate(async ({ base64, mime, fileName }) => {
+                    // Base64からBlobを作成
+                    const byteCharacters = atob(base64);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: mime });
 
-                let fileUploaded = false;
-                for (const selector of fileInputSelectors) {
+                    // Fileオブジェクトを作成
+                    const file = new File([blob], fileName, { type: mime });
+
+                    // DataTransferオブジェクトを作成
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+
+                    // ドロップターゲットを取得
+                    const target = document.querySelector('textarea') ||
+                                   document.querySelector('[class*="drop"]') ||
+                                   document.querySelector('[class*="input"]') ||
+                                   document.body;
+
+                    // ドラッグイベントを発火
+                    const dragEnterEvent = new DragEvent('dragenter', {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    });
+                    target.dispatchEvent(dragEnterEvent);
+
+                    const dragOverEvent = new DragEvent('dragover', {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    });
+                    target.dispatchEvent(dragOverEvent);
+
+                    // ドロップイベントを発火
+                    const dropEvent = new DragEvent('drop', {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    });
+                    target.dispatchEvent(dropEvent);
+
+                }, { base64: imageBase64, mime: mimeType, fileName: 'character_reference.png' });
+
+                console.log('   ✅ ドラッグ＆ドロップを実行しました');
+                await page.waitForTimeout(3000);
+            } else {
+                console.log('   ⚠️ ドロップターゲットが見つかりません');
+            }
+
+            // フォールバック: input[type="file"]を探して直接設定
+            const fileInputs = await page.$$('input[type="file"]');
+            if (fileInputs.length > 0) {
+                console.log(`   📎 ファイル入力要素を発見 (${fileInputs.length}個)`);
+                for (const fileInput of fileInputs) {
                     try {
-                        const fileInput = await page.$(selector);
-                        if (fileInput) {
-                            await fileInput.setInputFiles(CHARACTER_IMAGE_PATH);
-                            fileUploaded = true;
-                            console.log('   ✅ キャラクター画像をアップロードしました');
-                            break;
-                        }
+                        await fileInput.setInputFiles(CHARACTER_IMAGE_PATH);
+                        console.log('   ✅ ファイル入力経由でアップロードしました');
+                        break;
                     } catch (e) {
                         continue;
                     }
                 }
-
-                if (!fileUploaded) {
-                    // ファイル入力が隠れている場合、ファイルチューザーを使う
-                    try {
-                        const [fileChooser] = await Promise.all([
-                            page.waitForEvent('filechooser', { timeout: 5000 }),
-                            page.click('[class*="upload"], [class*="add-image"], button:has-text("選択")').catch(() => {})
-                        ]);
-
-                        if (fileChooser) {
-                            await fileChooser.setFiles(CHARACTER_IMAGE_PATH);
-                            console.log('   ✅ ファイルチューザーでアップロードしました');
-                            fileUploaded = true;
-                        }
-                    } catch {
-                        console.log('   ⚠️ ファイルチューザーが見つかりませんでした');
-                    }
-                }
-
-                await page.waitForTimeout(2000);
-            } else {
-                console.log('   ⚠️ Image1ボタンが見つかりません。手動で設定が必要かもしれません。');
             }
 
             await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_04_image1_upload.png') });
+            await page.waitForTimeout(2000);
         } else {
             console.log(`   ⚠️ キャラクター画像が見つかりません: ${CHARACTER_IMAGE_PATH}`);
             console.log('   📝 character_reference.png を infographic フォルダに配置してください');
@@ -473,11 +496,15 @@ ${article.content}`;
         console.log('='.repeat(50));
 
         let imageUrls: string[] = [];
-        const maxWaitTime = 10 * 60 * 1000; // 最大10分待機
+        const maxWaitTime = 15 * 60 * 1000; // 最大15分待機
         const checkInterval = 5000; // 5秒ごとにチェック
+        const minWaitTime = 90 * 1000; // 最低90秒は待機（生成開始を待つ）
+        const minImageCount = 2; // 最低2枚以上の画像が必要（アップロード画像を除く）
+        const stableRequirement = 6; // 6回連続（30秒）安定したら完了
         const startTime = Date.now();
         let lastImageCount = 0;
         let stableCount = 0; // 画像数が安定している回数
+        let initialImageCount = -1; // 初期画像数を記録
 
         while (Date.now() - startTime < maxWaitTime) {
             // ページ内の大きな画像を検出
@@ -510,15 +537,27 @@ ${article.content}`;
 
             const currentImageCount = largeImages.length;
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const elapsedMs = Date.now() - startTime;
 
-            console.log(`⏳ ${elapsed}秒経過 - 検出画像: ${currentImageCount}枚`);
+            // 初期画像数を記録（最初の1回だけ）
+            if (initialImageCount === -1) {
+                initialImageCount = currentImageCount;
+                console.log(`📊 初期画像数: ${initialImageCount}枚（アップロード画像等）`);
+            }
 
-            // 画像が見つかり、数が安定したら完了とみなす
-            if (currentImageCount > 0) {
+            // 新規生成された画像数（初期画像を除く）
+            const newImageCount = currentImageCount - initialImageCount;
+
+            console.log(`⏳ ${elapsed}秒経過 - 検出画像: ${currentImageCount}枚 (新規: ${newImageCount}枚)`);
+
+            // 最低待機時間を過ぎ、新規画像が生成されている場合のみ完了判定
+            if (elapsedMs >= minWaitTime && newImageCount >= minImageCount) {
                 if (currentImageCount === lastImageCount) {
                     stableCount++;
-                    // 3回連続で同じ画像数なら生成完了とみなす（15秒安定）
-                    if (stableCount >= 3) {
+                    console.log(`   📊 安定カウント: ${stableCount}/${stableRequirement}`);
+
+                    // 指定回数連続で同じ画像数なら生成完了とみなす
+                    if (stableCount >= stableRequirement) {
                         console.log('✅ 画像生成が完了しました！');
                         imageUrls = largeImages;
                         break;
@@ -526,6 +565,12 @@ ${article.content}`;
                 } else {
                     stableCount = 0;
                 }
+            } else if (elapsedMs < minWaitTime) {
+                console.log(`   ⏳ 最低待機時間まであと ${Math.ceil((minWaitTime - elapsedMs) / 1000)}秒...`);
+                stableCount = 0;
+            } else if (newImageCount < minImageCount) {
+                console.log(`   ⏳ 新規画像待ち（最低${minImageCount}枚必要）...`);
+                stableCount = 0;
             }
 
             lastImageCount = currentImageCount;
