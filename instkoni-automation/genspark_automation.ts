@@ -5,9 +5,12 @@ import * as https from 'https';
 import * as http from 'http';
 
 // ディレクトリ設定（__dirname基準）
-const ARTICLES_DRAFTS_DIR = path.join(__dirname, '..', 'articles', 'drafts');
+const ARTICLES_DRAFTS_DIR = path.join(__dirname, '..', 'articles', 'drafts2');
 const ARTICLES_PUBLISHED_DIR = path.join(__dirname, '..', 'articles', 'published');
 const INFOGRAPHIC_DIR = path.join(__dirname, '..', 'articles', 'infographic');
+
+// キャラクター画像パス（Image1で使用）
+const CHARACTER_IMAGE_PATH = path.join(INFOGRAPHIC_DIR, 'character_reference.png');
 
 // Genspark設定
 const GENSPARK_IMAGE_URL = 'https://www.genspark.ai/agents?type=image_generation_agent';
@@ -117,12 +120,16 @@ async function generateImages(): Promise<void> {
         return;
     }
 
-    // インフォグラフィック用プロンプト生成（設定はGUIで行うため、プロンプトには含めない）
+    // インフォグラフィック用プロンプト生成（黒板風・キャラクター説明調）
     const generationPrompt = `このNOTE記事にインフォグラフィックを入れたい。
-・記事を分析し、適切な数のインフォグラフィックを作成して欲しい。
-・中項目レベルで１つずつ
-・グラフィックレコーディング風の手描き図解にしてください。
-・重要なキーワードやコンセプトを視覚的に表現し、親しみやすいイラストと手書き風のフォントでまとめてください。
+・記事を分析し、小項目・中項目レベルで１つずつインフォグラフィックを作成して欲しい。
+・黒板風の手書きスタイルで、先生が書いたような図解にしてください。
+・ニュースの内容を分かりやすい表現に噛み砕いて、図解や視覚的な表現でまとめてください。
+・必ずそれぞれに日本語でタイトルをつけてください。
+・Image1に添付したキャラクター（黒髪ロング、メガネ、クリーム色カーディガン、紺色スカートの女の子）を必ず登場させてください。
+・キャラクターはその内容を説明している風に描いてください（ポインターを持つ、黒板を指す、など）。
+・キャラクターは2頭身やチビキャラではなく、ある程度大きく（5〜7頭身程度）、キャラクターの良さを損なわないように描いてください。
+・出力は全て日本語でお願いします。
 
 ${article.content}`;
 
@@ -237,6 +244,104 @@ ${article.content}`;
 
         await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_03_settings_done.png') });
         console.log('✅ 設定完了');
+
+        // ========== Image1にキャラクター画像をアップロード ==========
+        console.log('🖼️ Image1にキャラクター画像をアップロードします...');
+
+        // キャラクター画像が存在するか確認
+        if (fs.existsSync(CHARACTER_IMAGE_PATH)) {
+            console.log(`📁 キャラクター画像: ${CHARACTER_IMAGE_PATH}`);
+
+            // Image1 ボタンを探す（様々なセレクタを試行）
+            const image1Selectors = [
+                'button:has-text("Image1")',
+                'button:has-text("Image 1")',
+                '[class*="image1"]',
+                '[class*="image-upload"]',
+                '[data-testid*="image1"]',
+                '[aria-label*="Image1"]',
+                '[aria-label*="image"]',
+                'button:has-text("画像1")',
+                'button:has-text("Add Image")',
+                'button:has-text("画像を追加")',
+                '[class*="upload"]',
+                'label[for*="image"]'
+            ];
+
+            let image1Clicked = false;
+            for (const selector of image1Selectors) {
+                try {
+                    const elements = await page.$$(selector);
+                    for (const el of elements) {
+                        const isVisible = await el.isVisible().catch(() => false);
+                        if (isVisible) {
+                            const text = await el.textContent().catch(() => '');
+                            console.log(`   📍 Image1候補発見: ${selector} - "${text?.substring(0, 30)}"`);
+                            await el.click();
+                            image1Clicked = true;
+                            console.log('   ✅ Image1ボタンをクリック');
+                            break;
+                        }
+                    }
+                    if (image1Clicked) break;
+                } catch {
+                    continue;
+                }
+            }
+
+            if (image1Clicked) {
+                await page.waitForTimeout(1000);
+
+                // ファイル入力を探してアップロード
+                const fileInputSelectors = [
+                    'input[type="file"]',
+                    'input[accept*="image"]',
+                    '[class*="file-input"]'
+                ];
+
+                let fileUploaded = false;
+                for (const selector of fileInputSelectors) {
+                    try {
+                        const fileInput = await page.$(selector);
+                        if (fileInput) {
+                            await fileInput.setInputFiles(CHARACTER_IMAGE_PATH);
+                            fileUploaded = true;
+                            console.log('   ✅ キャラクター画像をアップロードしました');
+                            break;
+                        }
+                    } catch (e) {
+                        continue;
+                    }
+                }
+
+                if (!fileUploaded) {
+                    // ファイル入力が隠れている場合、ファイルチューザーを使う
+                    try {
+                        const [fileChooser] = await Promise.all([
+                            page.waitForEvent('filechooser', { timeout: 5000 }),
+                            page.click('[class*="upload"], [class*="add-image"], button:has-text("選択")').catch(() => {})
+                        ]);
+
+                        if (fileChooser) {
+                            await fileChooser.setFiles(CHARACTER_IMAGE_PATH);
+                            console.log('   ✅ ファイルチューザーでアップロードしました');
+                            fileUploaded = true;
+                        }
+                    } catch {
+                        console.log('   ⚠️ ファイルチューザーが見つかりませんでした');
+                    }
+                }
+
+                await page.waitForTimeout(2000);
+            } else {
+                console.log('   ⚠️ Image1ボタンが見つかりません。手動で設定が必要かもしれません。');
+            }
+
+            await page.screenshot({ path: path.join(INFOGRAPHIC_DIR, 'debug_04_image1_upload.png') });
+        } else {
+            console.log(`   ⚠️ キャラクター画像が見つかりません: ${CHARACTER_IMAGE_PATH}`);
+            console.log('   📝 character_reference.png を infographic フォルダに配置してください');
+        }
 
         // ========== プロンプト入力 ==========
         console.log('✍️ プロンプトを入力中...');
