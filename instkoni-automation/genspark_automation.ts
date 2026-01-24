@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
+import * as readline from 'readline';
 
 // ディレクトリ設定（__dirname基準）
 const ARTICLES_DRAFTS_DIR = path.join(__dirname, '..', 'articles', 'drafts2');
@@ -20,33 +21,95 @@ const USER_DATA_DIR = path.join(__dirname, 'browser-data');
 const DEBUG_MODE = process.argv.includes('--debug');
 
 /**
- * 最新の下書き記事を取得
+ * ユーザー入力を取得するヘルパー関数
  */
-function getLatestDraftArticle(): { filename: string; content: string } | null {
+function askQuestion(query: string): Promise<string> {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    return new Promise(resolve => {
+        rl.question(query, answer => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
+}
+
+/**
+ * 記事フォルダを一覧表示し、ユーザーに選択させる
+ */
+async function selectDraftArticle(): Promise<{ filename: string; content: string; folderName: string } | null> {
     if (!fs.existsSync(ARTICLES_DRAFTS_DIR)) {
         console.log(`📁 ディレクトリが存在しません: ${ARTICLES_DRAFTS_DIR}`);
         return null;
     }
 
-    const files = fs.readdirSync(ARTICLES_DRAFTS_DIR)
-        .filter(f => f.endsWith('.md'))
-        .map(f => ({
-            name: f,
-            path: path.join(ARTICLES_DRAFTS_DIR, f),
-            mtime: fs.statSync(path.join(ARTICLES_DRAFTS_DIR, f)).mtime
-        }))
-        .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    // フォルダのみを取得（oldフォルダと隠しフォルダを除外）
+    const folders = fs.readdirSync(ARTICLES_DRAFTS_DIR)
+        .filter(f => {
+            const fullPath = path.join(ARTICLES_DRAFTS_DIR, f);
+            return fs.statSync(fullPath).isDirectory() &&
+                   !f.startsWith('.') &&
+                   f !== 'old';
+        })
+        .sort();
 
-    if (files.length === 0) {
-        console.log('📭 下書き記事が見つかりません');
+    if (folders.length === 0) {
+        console.log('📭 記事フォルダが見つかりません');
         return null;
     }
 
-    const latest = files[0];
-    console.log(`📄 最新の下書き: ${latest.name}`);
+    // フォルダ一覧を表示
+    console.log('\n📂 記事フォルダ一覧:');
+    console.log('─'.repeat(60));
+    folders.forEach((folder, index) => {
+        console.log(`  [${index + 1}] ${folder}`);
+    });
+    console.log('─'.repeat(60));
+
+    // ユーザーに選択させる
+    const answer = await askQuestion(`\n選択してください (1-${folders.length}): `);
+    const selectedIndex = parseInt(answer, 10) - 1;
+
+    if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= folders.length) {
+        console.log('❌ 無効な選択です');
+        return null;
+    }
+
+    const selectedFolder = folders[selectedIndex];
+    const folderPath = path.join(ARTICLES_DRAFTS_DIR, selectedFolder);
+    console.log(`\n✅ 選択されたフォルダ: ${selectedFolder}`);
+
+    // フォルダ内の.mdファイルを取得し、ファイル名が最も長いものを選択
+    const mdFiles = fs.readdirSync(folderPath)
+        .filter(f => f.endsWith('.md'))
+        .sort((a, b) => b.length - a.length); // ファイル名の長さで降順ソート
+
+    if (mdFiles.length === 0) {
+        console.log('📭 フォルダ内に.mdファイルが見つかりません');
+        return null;
+    }
+
+    // 最もファイル名が長いファイルを選択
+    const selectedFile = mdFiles[0];
+    const filePath = path.join(folderPath, selectedFile);
+
+    console.log(`📄 選択された記事: ${selectedFile}`);
+    console.log(`   (ファイル名の長さ: ${selectedFile.length}文字)`);
+
+    // 他の候補も表示
+    if (mdFiles.length > 1) {
+        console.log('\n📋 フォルダ内の他の.mdファイル:');
+        mdFiles.slice(1).forEach(f => {
+            console.log(`   - ${f} (${f.length}文字)`);
+        });
+    }
+
     return {
-        filename: latest.name,
-        content: fs.readFileSync(latest.path, 'utf-8')
+        filename: selectedFile,
+        content: fs.readFileSync(filePath, 'utf-8'),
+        folderName: selectedFolder
     };
 }
 
@@ -113,8 +176,8 @@ async function downloadImage(url: string, filepath: string): Promise<boolean> {
 async function generateImages(): Promise<void> {
     console.log('🎨 Genspark画像生成を開始します...\n');
 
-    // 最新の下書き記事を取得
-    const article = getLatestDraftArticle();
+    // 記事フォルダを選択
+    const article = await selectDraftArticle();
     if (!article) {
         console.log('❌ 処理する記事がありません');
         return;
