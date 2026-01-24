@@ -1,0 +1,11 @@
+{
+  "linkedin": {
+    "success": false,
+    "message": "ログインが必要です"
+  },
+  "x": {
+    "success": false,
+    "message": "ログインが必要です",
+    "posts": []
+  }
+}

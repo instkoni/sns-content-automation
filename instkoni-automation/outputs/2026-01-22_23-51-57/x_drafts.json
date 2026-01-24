@@ -1,0 +1,54 @@
+{
+  "generated_at": "2026-01-22T23:51:57.707058",
+  "source_article": {
+    "title": "ChatGPT Goは「ビジネス革命」の狼煙か？冷静に読み解くOpenAIのマーケティング戦略",
+    "url": "https://note.com/instkoni/n/nfbf576f13775"
+  },
+  "drafts": [
+    {
+      "index": 1,
+      "text": "【ChatGPT Go、本当に\"ビジネス革命\"？】\n\n月額1,500円の新プラン「ChatGPT Go」が話題ですが、冷静に見ると「ビジネス向け」とは言い難い現実があります。\n\nOpenAIの真の狙いは何か？詳しく解説します🧵",
+      "char_count": 126,
+      "hashtags": [
+        "#ChatGPT",
+        "#OpenAI"
+      ],
+      "image": "画像1"
+    },
+    {
+      "index": 2,
+      "text": "【3つの現実】\n\n①本気の企業はすでにPlus以上を利用中\n→月額1,500円の差で高機能を手放す理由がない\n\n②API利用はプランと無関係\n→課金はモデル×トークン数。Goプランはコスト面で無影響\n\n③お試し導入としても中途半端\n→結局Plusで再検証する二度手間に",
+      "char_count": 150,
+      "hashtags": [
+        "#AI活用"
+      ],
+      "image": "画像2"
+    },
+    {
+      "index": 3,
+      "text": "【OpenAIの本当の狙い】\n\n・無料ユーザーを有料化する「アップセル戦略」\n・2026年2月から広告導入テスト開始\n\nこれはGoogleやMetaと同じビジネスモデルへの転換。「AIのマスアダプション（大衆化）」に向けた戦略的一手です。",
+      "char_count": 138,
+      "hashtags": [
+        "#生成AI"
+      ],
+      "image": "画像3"
+    },
+    {
+      "index": 4,
+      "text": "【Goプランに価値がある人】\n\n・AIスキルを磨きたい学生・若手社会人\n・趣味や副業でAIを使いたい個人\n\n一方、ビジネス本格活用ならPlus以上＋API戦略が必須。\n\nメディアの煽りに踊らされず、本質を見極めましょう。\n\n詳細はこちら↓\nhttps://note.com/instkoni/n/nfbf576f13775",
+      "char_count": 175,
+      "hashtags": [
+        "#DX",
+        "#ビジネス"
+      ],
+      "image": null
+    }
+  ],
+  "infographic_images": [
+    "/Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/../articles/infographic/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ_01.png",
+    "/Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/../articles/infographic/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ_02.png",
+    "/Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/../articles/infographic/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ_03.png",
+    "/Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/../articles/infographic/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ_04.png",
+    "/Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/../articles/infographic/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ/20260122222735_20260121_噂_Google_Gemini_3_Pro_2026年Q1公開か_最新リークまとめ_05.png"
+  ]
+}
