@@ -36,50 +36,14 @@ function askQuestion(query: string): Promise<string> {
     });
 }
 
+// 記事情報の型定義
+type ArticleInfo = { filename: string; content: string; folderName: string };
+
 /**
- * 記事フォルダを一覧表示し、ユーザーに選択させる
+ * フォルダから記事情報を取得するヘルパー関数
  */
-async function selectDraftArticle(): Promise<{ filename: string; content: string; folderName: string } | null> {
-    if (!fs.existsSync(ARTICLES_DRAFTS_DIR)) {
-        console.log(`📁 ディレクトリが存在しません: ${ARTICLES_DRAFTS_DIR}`);
-        return null;
-    }
-
-    // フォルダのみを取得（oldフォルダと隠しフォルダを除外）
-    const folders = fs.readdirSync(ARTICLES_DRAFTS_DIR)
-        .filter(f => {
-            const fullPath = path.join(ARTICLES_DRAFTS_DIR, f);
-            return fs.statSync(fullPath).isDirectory() &&
-                   !f.startsWith('.') &&
-                   f !== 'old';
-        })
-        .sort();
-
-    if (folders.length === 0) {
-        console.log('📭 記事フォルダが見つかりません');
-        return null;
-    }
-
-    // フォルダ一覧を表示
-    console.log('\n📂 記事フォルダ一覧:');
-    console.log('─'.repeat(60));
-    folders.forEach((folder, index) => {
-        console.log(`  [${index + 1}] ${folder}`);
-    });
-    console.log('─'.repeat(60));
-
-    // ユーザーに選択させる
-    const answer = await askQuestion(`\n選択してください (1-${folders.length}): `);
-    const selectedIndex = parseInt(answer, 10) - 1;
-
-    if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= folders.length) {
-        console.log('❌ 無効な選択です');
-        return null;
-    }
-
-    const selectedFolder = folders[selectedIndex];
-    const folderPath = path.join(ARTICLES_DRAFTS_DIR, selectedFolder);
-    console.log(`\n✅ 選択されたフォルダ: ${selectedFolder}`);
+function getArticleFromFolder(folderName: string): ArticleInfo | null {
+    const folderPath = path.join(ARTICLES_DRAFTS_DIR, folderName);
 
     // フォルダ内の.mdファイルを取得し、ファイル名が最も長いものを選択
     const mdFiles = fs.readdirSync(folderPath)
@@ -87,7 +51,7 @@ async function selectDraftArticle(): Promise<{ filename: string; content: string
         .sort((a, b) => b.length - a.length); // ファイル名の長さで降順ソート
 
     if (mdFiles.length === 0) {
-        console.log('📭 フォルダ内に.mdファイルが見つかりません');
+        console.log(`📭 フォルダ内に.mdファイルが見つかりません: ${folderName}`);
         return null;
     }
 
@@ -95,10 +59,90 @@ async function selectDraftArticle(): Promise<{ filename: string; content: string
     const selectedFile = mdFiles[0];
     const filePath = path.join(folderPath, selectedFile);
 
-    console.log(`📄 選択された記事: ${selectedFile}`);
-    console.log(`   (ファイル名の長さ: ${selectedFile.length}文字)`);
+    return {
+        filename: selectedFile,
+        content: fs.readFileSync(filePath, 'utf-8'),
+        folderName: folderName
+    };
+}
+
+/**
+ * 記事フォルダを一覧表示し、ユーザーに選択させる
+ * 「すべて」を選択した場合は全フォルダの記事を配列で返す
+ */
+async function selectDraftArticles(): Promise<ArticleInfo[]> {
+    if (!fs.existsSync(ARTICLES_DRAFTS_DIR)) {
+        console.log(`📁 ディレクトリが存在しません: ${ARTICLES_DRAFTS_DIR}`);
+        return [];
+    }
+
+    // フォルダのみを取得（日付から始まるフォルダのみ対象）
+    const datePattern = /^\d{8}/; // YYYYMMDD形式で始まるフォルダ
+    const folders = fs.readdirSync(ARTICLES_DRAFTS_DIR)
+        .filter(f => {
+            const fullPath = path.join(ARTICLES_DRAFTS_DIR, f);
+            return fs.statSync(fullPath).isDirectory() &&
+                   datePattern.test(f);
+        })
+        .sort();
+
+    if (folders.length === 0) {
+        console.log('📭 記事フォルダが見つかりません');
+        return [];
+    }
+
+    // フォルダ一覧を表示（「すべて」オプション付き）
+    console.log('\n📂 記事フォルダ一覧:');
+    console.log('─'.repeat(60));
+    console.log(`  [0] 🔄 すべて（${folders.length}件を順番に処理）`);
+    console.log('─'.repeat(60));
+    folders.forEach((folder, index) => {
+        console.log(`  [${index + 1}] ${folder}`);
+    });
+    console.log('─'.repeat(60));
+
+    // ユーザーに選択させる
+    const answer = await askQuestion(`\n選択してください (0=すべて, 1-${folders.length}): `);
+    const selectedIndex = parseInt(answer, 10);
+
+    // 「すべて」が選択された場合
+    if (selectedIndex === 0) {
+        console.log(`\n✅ すべてのフォルダを処理します（${folders.length}件）`);
+        const articles: ArticleInfo[] = [];
+        for (const folder of folders) {
+            const article = getArticleFromFolder(folder);
+            if (article) {
+                articles.push(article);
+                console.log(`   📄 ${folder} → ${article.filename}`);
+            }
+        }
+        return articles;
+    }
+
+    // 個別選択の場合
+    const folderIndex = selectedIndex - 1;
+    if (isNaN(folderIndex) || folderIndex < 0 || folderIndex >= folders.length) {
+        console.log('❌ 無効な選択です');
+        return [];
+    }
+
+    const selectedFolder = folders[folderIndex];
+    console.log(`\n✅ 選択されたフォルダ: ${selectedFolder}`);
+
+    const article = getArticleFromFolder(selectedFolder);
+    if (!article) {
+        return [];
+    }
+
+    console.log(`📄 選択された記事: ${article.filename}`);
+    console.log(`   (ファイル名の長さ: ${article.filename.length}文字)`);
 
     // 他の候補も表示
+    const folderPath = path.join(ARTICLES_DRAFTS_DIR, selectedFolder);
+    const mdFiles = fs.readdirSync(folderPath)
+        .filter(f => f.endsWith('.md'))
+        .sort((a, b) => b.length - a.length);
+
     if (mdFiles.length > 1) {
         console.log('\n📋 フォルダ内の他の.mdファイル:');
         mdFiles.slice(1).forEach(f => {
@@ -106,11 +150,7 @@ async function selectDraftArticle(): Promise<{ filename: string; content: string
         });
     }
 
-    return {
-        filename: selectedFile,
-        content: fs.readFileSync(filePath, 'utf-8'),
-        folderName: selectedFolder
-    };
+    return [article];
 }
 
 /**
@@ -171,20 +211,10 @@ async function downloadImage(url: string, filepath: string): Promise<boolean> {
 }
 
 /**
- * Genspark画像生成の実行
+ * プロンプトを生成
  */
-async function generateImages(): Promise<void> {
-    console.log('🎨 Genspark画像生成を開始します...\n');
-
-    // 記事フォルダを選択
-    const article = await selectDraftArticle();
-    if (!article) {
-        console.log('❌ 処理する記事がありません');
-        return;
-    }
-
-    // インフォグラフィック用プロンプト生成（黒板風・キャラクター説明調）
-    const generationPrompt = `このNOTE記事にインフォグラフィックを入れたい。
+function generatePrompt(articleContent: string): string {
+    return `このNOTE記事にインフォグラフィックを入れたい。
 ・記事を分析し、小項目・中項目レベルで１つずつインフォグラフィックを作成して欲しい。
 ・黒板風の手書きスタイルで、先生が書いたような図解にしてください。
 ・ニュースの内容を分かりやすい表現に噛み砕いて、図解や視覚的な表現でまとめてください。
@@ -194,28 +224,31 @@ async function generateImages(): Promise<void> {
 ・キャラクターは2頭身やチビキャラではなく、ある程度大きく（5〜7頭身程度）、キャラクターの良さを損なわないように描いてください。
 ・出力は全て日本語でお願いします。
 
-${article.content}`;
+${articleContent}`;
+}
+
+/**
+ * 単一記事の画像生成処理
+ */
+async function processArticle(
+    page: Page,
+    article: ArticleInfo,
+    articleIndex: number,
+    totalArticles: number
+): Promise<void> {
+    const progressPrefix = totalArticles > 1 ? `[${articleIndex + 1}/${totalArticles}] ` : '';
+
+    console.log('\n' + '═'.repeat(60));
+    console.log(`${progressPrefix}📄 処理中: ${article.filename}`);
+    console.log('═'.repeat(60));
+
+    // インフォグラフィック用プロンプト生成
+    const generationPrompt = generatePrompt(article.content);
 
     // プロンプトをファイルに保存（確認用）
     const promptFilePath = path.join(INFOGRAPHIC_DIR, 'last_prompt.txt');
     fs.writeFileSync(promptFilePath, generationPrompt, 'utf-8');
-    console.log(`📝 プロンプトを保存しました: ${promptFilePath}`);
     console.log(`📝 プロンプト文字数: ${generationPrompt.length}文字`);
-
-    // 保存ディレクトリ作成
-    if (!fs.existsSync(INFOGRAPHIC_DIR)) {
-        fs.mkdirSync(INFOGRAPHIC_DIR, { recursive: true });
-    }
-
-    // ブラウザ起動（ユーザーデータを保持してログイン状態を維持）
-    console.log('🌐 ブラウザを起動中...');
-    const browser: BrowserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-        headless: false,
-        viewport: { width: 1280, height: 900 },
-        args: ['--disable-blink-features=AutomationControlled']
-    });
-
-    const page: Page = await browser.newPage();
 
     try {
         // Gensparkの画像生成ページに移動
@@ -804,6 +837,52 @@ ${article.content}`;
             path: path.join(INFOGRAPHIC_DIR, `error_${generateTimestamp()}.png`),
             fullPage: true
         });
+    }
+}
+
+/**
+ * Genspark画像生成の実行（複数記事対応）
+ */
+async function generateImages(): Promise<void> {
+    console.log('🎨 Genspark画像生成を開始します...\n');
+
+    // 記事フォルダを選択（複数選択対応）
+    const articles = await selectDraftArticles();
+    if (articles.length === 0) {
+        console.log('❌ 処理する記事がありません');
+        return;
+    }
+
+    console.log(`\n📊 処理対象: ${articles.length}件の記事`);
+
+    // 保存ディレクトリ作成
+    if (!fs.existsSync(INFOGRAPHIC_DIR)) {
+        fs.mkdirSync(INFOGRAPHIC_DIR, { recursive: true });
+    }
+
+    // ブラウザ起動（ユーザーデータを保持してログイン状態を維持）
+    console.log('🌐 ブラウザを起動中...');
+    const browser: BrowserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+        headless: false,
+        viewport: { width: 1280, height: 900 },
+        args: ['--disable-blink-features=AutomationControlled']
+    });
+
+    const page: Page = await browser.newPage();
+
+    try {
+        // 各記事を順番に処理
+        for (let i = 0; i < articles.length; i++) {
+            const article = articles[i];
+            await processArticle(page, article, i, articles.length);
+        }
+
+        // 全件完了サマリー
+        if (articles.length > 1) {
+            console.log('\n' + '═'.repeat(60));
+            console.log(`🎉 全 ${articles.length} 件の処理が完了しました！`);
+            console.log('═'.repeat(60));
+        }
     } finally {
         console.log('\n✅ 処理完了');
         console.log('🔒 ブラウザを閉じます...');

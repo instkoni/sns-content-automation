@@ -1,3 +1,6 @@
-2026/01/24-12:12:08.703 62917d Reusing MANIFEST /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/Session Storage/MANIFEST-000001
-2026/01/24-12:12:08.703 62917d Recovering log #25
-2026/01/24-12:12:08.704 62917d Reusing old log /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/Session Storage/000025.log 
+2026/01/24-20:25:40.900 6cad0d Reusing MANIFEST /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/Session Storage/MANIFEST-000001
+2026/01/24-20:25:40.902 6cad0d Recovering log #30
+2026/01/24-20:25:40.904 6cad0d Reusing old log /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/Session Storage/000030.log 
+2026/01/24-20:26:43.026 6cad10 Level-0 table #35: started
+2026/01/24-20:26:43.029 6cad10 Level-0 table #35: 17212 bytes OK
+2026/01/24-20:26:43.032 6cad10 Delete type=0 #30

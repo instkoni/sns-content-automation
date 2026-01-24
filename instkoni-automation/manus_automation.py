@@ -287,301 +287,143 @@ async def extract_outputs(page: Page, original_path: Path) -> dict[str, str]:
     output_folder.mkdir(parents=True, exist_ok=True)
     print(f"   📁 出力フォルダ作成: {output_folder}")
 
-    # ========== 手動ダウンロード方式 ==========
-    import time
-    downloads_dir = Path.home() / "Downloads"
-
-    # ダウンロード前の.mdファイル一覧を取得
-    before_download = set(downloads_dir.glob("*.md"))
-
-    print("\n" + "=" * 60)
-    print("📥 手動でファイルをダウンロードしてください")
-    print("=" * 60)
-    print(f"   1. 各ファイルカードをクリックして拡大")
-    print(f"   2. 右上のダウンロードボタン（↓）をクリック")
-    print(f"   3. 「Markdown」を選択してダウンロード")
-    print(f"   4. 3ファイル全てダウンロードしてください：")
-    print(f"      - メイン記事")
-    print(f"      - ファクトチェック結果レポート")
-    print(f"      - 参考情報源URLリスト")
-    print("=" * 60)
-    print("   完了したら、Playwright Inspectorで Resume をクリック")
-    print("=" * 60 + "\n")
-
-    await page.pause()
-
-    # ダウンロード後の.mdファイル一覧を取得
-    after_download = set(downloads_dir.glob("*.md"))
-
-    # 新しくダウンロードされたファイルを特定
-    new_files = after_download - before_download
-    print(f"   🔍 新しくダウンロードされたファイル: {len(new_files)}個")
-
-    # ファイルを出力フォルダに移動
-    for md_file in new_files:
-        try:
-            dest = output_folder / md_file.name
-            md_file.rename(dest)
-            downloaded_files.append(dest)
-            print(f"   ✅ 移動: {md_file.name}")
-        except Exception as e:
-            print(f"   ⚠️ 移動エラー: {md_file.name} - {e}")
-
-    print(f"   📊 移動完了: {len(downloaded_files)}ファイル -> {output_folder.name}/")
-
-    outputs["output_folder"] = str(output_folder)
-    outputs["downloaded_files"] = [str(f) for f in downloaded_files]
-    return outputs
-
     try:
-        # ========== ファイルカードを探す ==========
-        # ManusAIのファイルは「Markdown · X.XX KB」形式で表示される
-        # ファクトチェック結果レポート、参考情報源URLリストなどのテキストを含む
+        # ========== 一括ダウンロード方式 ==========
+        import zipfile
+        import shutil
 
-        # ファイルカードを識別するためのテキストパターン
-        file_patterns = [
-            ("fact_check", ["ファクトチェック結果レポート", "ファクトチェック"]),
-            ("references", ["参考情報源URLリスト", "参考情報源", "参考URL"]),
-            ("revised_article", ["【2026", "【2025", "指示待ちAI", "自律型"]),  # メイン記事
+        print("   🔍 「このタスク内のすべてのファイルを表示」を探しています...")
+        await page.wait_for_timeout(2000)
+
+        # 「このタスク内のすべてのファイルを表示」ボタンを探してクリック
+        show_files_btn = page.locator('text="このタスク内のすべてのファイルを表示"')
+        if await show_files_btn.count() > 0 and await show_files_btn.first.is_visible():
+            await show_files_btn.first.click()
+            print("   ✅ ファイル一覧パネルを開きました")
+            await page.wait_for_timeout(2000)
+        else:
+            # 別のセレクタを試す
+            show_files_alt = page.locator('button:has-text("ファイルを表示")')
+            if await show_files_alt.count() > 0:
+                await show_files_alt.first.click()
+                print("   ✅ ファイル一覧パネルを開きました（代替セレクタ）")
+                await page.wait_for_timeout(2000)
+            else:
+                print("   ⚠️ ファイル一覧ボタンが見つかりません")
+
+        await page.screenshot(path=str(output_folder / "debug_file_list_panel.png"))
+
+        # 「一括ダウンロード」ボタンを探してクリック
+        print("   🔍 「一括ダウンロード」ボタンを探しています...")
+
+        # ダウンロード前のZIPファイルを記録
+        downloads_dir = Path.home() / "Downloads"
+        before_download = set(downloads_dir.glob("*.zip"))
+
+        # 一括ダウンロードボタンを探す（複数のセレクタを試す）
+        bulk_download_selectors = [
+            'text="一括ダウンロード"',
+            'button:has-text("一括ダウンロード")',
+            '[aria-label*="ダウンロード"]',
         ]
 
-        print("   🔍 ファイルカードを検索中...")
-
-        # 方法1: テキストでファイルカードを検索
-        file_cards = []
-
-        # 「Markdown · 」テキストを含む親要素を探す
-        markdown_indicators = page.locator('text=/Markdown · \\d+\\.?\\d* KB/')
-        md_count = await markdown_indicators.count()
-        print(f"   📊 Markdown表示要素: {md_count}個")
-
-        for i in range(md_count):
+        download_clicked = False
+        for selector in bulk_download_selectors:
             try:
-                indicator = markdown_indicators.nth(i)
-                # 親要素（ファイルカード全体）を取得
-                # 3階層上の親要素を探す
-                card = indicator.locator('xpath=ancestor::div[contains(@class, "cursor-pointer") or contains(@class, "hover:")]').first
-                if not await card.count():
-                    # フォールバック: クリック可能な親要素を探す
-                    card = indicator.locator('xpath=..').first
-                    for _ in range(3):
-                        parent = card.locator('xpath=..')
-                        if await parent.count():
-                            card = parent.first
-                if await card.is_visible():
-                    full_text = await card.inner_text()
-                    file_cards.append({
-                        'element': card,
-                        'text': full_text
-                    })
-                    print(f"   📄 ファイルカード発見: {full_text[:60]}...")
-            except Exception as e:
-                print(f"   ⚠️ カード取得エラー: {e}")
-
-        # 方法2: 特定のテキストを含む要素を直接検索
-        if len(file_cards) < 3:
-            for key, patterns in file_patterns:
-                for pattern in patterns:
-                    try:
-                        elements = page.locator(f'text="{pattern}"')
-                        count = await elements.count()
-                        for i in range(count):
-                            el = elements.nth(i)
-                            if await el.is_visible():
-                                # 親要素を探す（クリック可能な領域）
-                                card = el.locator('xpath=ancestor::div[1]')
-                                if await card.count() and await card.first.is_visible():
-                                    full_text = await card.first.inner_text()
-                                    # 重複チェック
-                                    if not any(fc['text'] == full_text for fc in file_cards):
-                                        file_cards.append({
-                                            'element': card.first,
-                                            'text': full_text,
-                                            'key': key
-                                        })
-                                        print(f"   📄 パターンマッチ: {pattern} -> {full_text[:40]}...")
-                    except:
-                        continue
-
-        print(f"   📊 発見したファイルカード: {len(file_cards)}個")
-
-        # ========== 各ファイルをダウンロード ==========
-        for i, card_info in enumerate(file_cards[:3]):
-            try:
-                card_text = card_info['text']
-                card = card_info['element']
-
-                # ファイルの種類を判定
-                if 'ファクトチェック' in card_text:
-                    key = "fact_check"
-                    suffix = "ファクトチェック"
-                elif '参考情報源' in card_text or '参考URL' in card_text:
-                    key = "references"
-                    suffix = "参考情報"
-                else:
-                    key = "revised_article"
-                    suffix = "推敲版"
-
-                print(f"   🖱️ [{i+1}] {suffix}をクリック...")
-
-                # ファイルカードをクリックして展開
-                await card.click()
-                await page.wait_for_timeout(3000)
-
-                # スクリーンショット保存
-                await page.screenshot(path=str(OUTPUT_DIR / f"debug_06_file_expanded_{i+1}.png"))
-
-                # ========== ダウンロードボタンを探す（右上のアイコン） ==========
-                await page.wait_for_timeout(2000)
-                await page.screenshot(path=str(OUTPUT_DIR / f"debug_07_file_opened_{i+1}.png"))
-
-                # 右上のボタン群: 共有(↗), ダウンロード(↓), ..., □, ×
-                # ダウンロードボタンは x=1050-1080 付近にある
-                download_btn = None
-
-                # 方法1: aria-label で探す
-                download_selectors = [
-                    'button[aria-label*="ダウンロード"]',
-                    'button[aria-label*="download"]',
-                    'button[aria-label*="Download"]',
-                ]
-                for sel in download_selectors:
-                    try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible():
-                            download_btn = btn
-                            print(f"      📍 ダウンロードボタン発見（{sel}）")
-                            break
-                    except:
-                        continue
-
-                # 方法2: x座標でダウンロードボタンを特定（共有の右隣）
-                if not download_btn:
-                    print("      🔍 右上のボタンを座標で検索...")
-                    all_buttons = page.locator('button')
-                    btn_count = await all_buttons.count()
-
-                    for j in range(btn_count):
-                        try:
-                            btn = all_buttons.nth(j)
-                            if await btn.is_visible():
-                                box = await btn.bounding_box()
-                                # ダウンロードボタン: y < 100, x が 1040-1090 の範囲
-                                if box and box['y'] < 100 and 1040 < box['x'] < 1090:
-                                    download_btn = btn
-                                    print(f"      📍 ダウンロードボタン発見: x={box['x']:.0f}, y={box['y']:.0f}")
-                                    break
-                        except:
-                            continue
-
-                # 方法3: ヘッダーボタンの3番目（0: 共有, 1: ダウンロード ではなく実際の順序で）
-                if not download_btn:
-                    header_buttons = []
-                    all_buttons = page.locator('button')
-                    btn_count = await all_buttons.count()
-
-                    for j in range(btn_count):
-                        try:
-                            btn = all_buttons.nth(j)
-                            if await btn.is_visible():
-                                box = await btn.bounding_box()
-                                if box and box['y'] < 100 and box['x'] > 1000:
-                                    header_buttons.append((btn, box))
-                        except:
-                            continue
-
-                    header_buttons.sort(key=lambda x: x[1]['x'])
-                    print(f"      📊 ヘッダーボタン: {len(header_buttons)}個")
-                    for idx, (btn, box) in enumerate(header_buttons):
-                        print(f"         [{idx}] x={box['x']:.0f}")
-
-                    # インデックス1がダウンロード（0が共有）
-                    if len(header_buttons) >= 2:
-                        download_btn = header_buttons[1][0]
-                        print(f"      📍 インデックス1のボタンを使用")
-
-                if not download_btn:
-                    print(f"      ⚠️ ダウンロードボタンが見つかりません")
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(1000)
-                    continue
-
-                # ダウンロードボタンをクリック → メニュー表示
-                await download_btn.click()
-                print(f"      📥 ダウンロードボタンをクリック")
-                await page.wait_for_timeout(1500)
-                await page.screenshot(path=str(OUTPUT_DIR / f"debug_08_download_menu_{i+1}.png"))
-
-                # 「Markdown」オプションが表示されているか確認
-                markdown_option = page.locator('text="Markdown"').first
-                if not await markdown_option.is_visible():
-                    print(f"      ⚠️ Markdownオプションが見つかりません（別のメニューが開いた可能性）")
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(500)
-                    continue
-
-                # 「Markdown」を選択してダウンロード
-                try:
-                    async with page.expect_download(timeout=60000) as download_info:
-                        await markdown_option.click()
-                        print(f"      📄 Markdownを選択")
+                btn = page.locator(selector)
+                if await btn.count() > 0 and await btn.first.is_visible():
+                    # ダウンロードイベントを待機してクリック
+                    async with page.expect_download(timeout=120000) as download_info:
+                        await btn.first.click()
+                        print(f"   📥 一括ダウンロードをクリック（{selector}）")
 
                     download = await download_info.value
-                    suggested_name = download.suggested_filename
-                    filename = f"{suffix}.md"
-                    filepath = output_folder / filename
-
-                    await download.save_as(str(filepath))
-                    downloaded_files.append(filepath)
-                    outputs[key] = str(filepath)
-                    print(f"      ✅ 保存: {filepath}")
-
-                except Exception as e:
-                    print(f"      ⚠️ ダウンロードエラー: {e}")
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(500)
-
-                # ファイルプレビューを閉じる
-                await page.keyboard.press('Escape')
-                await page.wait_for_timeout(1500)
-
+                    zip_filename = download.suggested_filename
+                    zip_path = downloads_dir / zip_filename
+                    await download.save_as(str(zip_path))
+                    print(f"   ✅ ZIPダウンロード完了: {zip_filename}")
+                    download_clicked = True
+                    break
             except Exception as e:
-                print(f"   ⚠️ ファイル{i+1}の処理エラー: {e}")
-                # エラー時もEscで閉じる
+                print(f"   ⚠️ {selector} でエラー: {e}")
+                continue
+
+        # ダウンロードイベントで取得できなかった場合、ファイルシステムで検出
+        if not download_clicked:
+            print("   🔄 ダウンロードイベント取得失敗、ファイルシステムで検出中...")
+            # ボタンを直接クリック
+            for selector in bulk_download_selectors:
                 try:
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(1000)
+                    btn = page.locator(selector)
+                    if await btn.count() > 0 and await btn.first.is_visible():
+                        await btn.first.click()
+                        print(f"   📥 一括ダウンロードをクリック（{selector}）")
+                        download_clicked = True
+                        break
                 except:
-                    pass
+                    continue
+
+            if download_clicked:
+                # ダウンロード完了を待つ（最大60秒）
+                print("   ⏳ ダウンロード完了を待機中...")
+                for _ in range(60):
+                    await page.wait_for_timeout(1000)
+                    after_download = set(downloads_dir.glob("*.zip"))
+                    new_zips = after_download - before_download
+                    if new_zips:
+                        zip_path = list(new_zips)[0]
+                        print(f"   ✅ ZIPファイル検出: {zip_path.name}")
+                        break
+                else:
+                    print("   ⚠️ ZIPファイルのダウンロードがタイムアウトしました")
+                    zip_path = None
+            else:
+                zip_path = None
+
+        # ZIPファイルを解凍して出力フォルダに移動
+        if zip_path and zip_path.exists():
+            print(f"   📦 ZIPファイルを解凍中: {zip_path}")
+
+            # 一時解凍フォルダ
+            temp_extract_dir = downloads_dir / "manus_temp_extract"
+            if temp_extract_dir.exists():
+                shutil.rmtree(temp_extract_dir)
+            temp_extract_dir.mkdir()
+
+            # 解凍
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_extract_dir)
+
+            # 解凍されたファイルを出力フォルダに移動
+            for item in temp_extract_dir.rglob("*"):
+                if item.is_file():
+                    dest = output_folder / item.name
+                    shutil.move(str(item), str(dest))
+                    downloaded_files.append(dest)
+                    print(f"   ✅ 移動: {item.name}")
+
+                    # ファイルの種類を判定してoutputsに登録
+                    if 'ファクトチェック' in item.name:
+                        outputs["fact_check"] = str(dest)
+                    elif '参考情報' in item.name or 'URL' in item.name:
+                        outputs["references"] = str(dest)
+                    else:
+                        outputs["revised_article"] = str(dest)
+
+            # クリーンアップ
+            shutil.rmtree(temp_extract_dir)
+            zip_path.unlink()  # ZIPファイルを削除
+            print(f"   🧹 一時ファイルをクリーンアップしました")
 
         print(f"   📊 ダウンロード完了: {len(downloaded_files)}ファイル")
-
-        # ========== ダウンロードできなかった場合、テキスト抽出を試みる ==========
-        if len(downloaded_files) == 0:
-            print("   ⚠️ ファイルダウンロードできず、テキスト抽出を試みます...")
-            try:
-                # チャット内のメッセージからテキストを抽出
-                messages = page.locator('[class*="message"], [class*="content"]')
-                msg_count = await messages.count()
-                for i in range(msg_count):
-                    try:
-                        msg = messages.nth(i)
-                        text = await msg.inner_text()
-                        if len(text) > 500:  # 長いテキストを探す
-                            if 'ファクトチェック' in text:
-                                outputs["fact_check"] = text
-                            elif '参考情報源' in text or 'http' in text:
-                                outputs["references"] = text
-                            elif '##' in text or '###' in text:  # Markdown見出しを含む
-                                outputs["revised_article"] = text
-                    except:
-                        continue
-            except:
-                pass
 
     except Exception as e:
         print(f"⚠️ 出力抽出エラー: {e}")
         await page.screenshot(path=str(OUTPUT_DIR / "error_extraction.png"))
+
+    # 出力フォルダとダウンロードファイル情報を記録
+    outputs["output_folder"] = str(output_folder)
+    outputs["downloaded_files"] = [str(f) for f in downloaded_files]
 
     return outputs
 
