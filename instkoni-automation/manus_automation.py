@@ -37,24 +37,21 @@ MANUS_URL = "https://manus.im/app"
 # デバッグモード
 DEBUG_MODE = "--debug" in sys.argv
 
-# --- マスタープロンプト（添付ファイル用：記事本文は別途アップロード） --- #
-MASTER_PROMPT_TEMPLATE = """添付したMarkdownファイルはNote記事の下書きです。以下の指示に従って、記事の品質を向上させてください。
+# --- マスタープロンプト（ファイルアップロード後のダイアログ用） --- #
+MASTER_PROMPT_TEMPLATE = """上記のMarkdownファイルを以下の指示に従って処理してください。
 
-## 制約条件
+【タスク】
+1. ファクトチェック: 技術的な記述、製品名、統計データの正確性を検証
+2. 参考情報: 信頼性の高い情報源を3〜5個調査してURLリストを作成
+3. 加筆: 約4,000字以上に肉付け（冗長にならないよう注意）
+4. SNS調査: Xでテーマに関する意見を調査し反映
 
-1. **ファクトチェック**: 記事内の技術的な記述、製品名、統計データの正確性を検証し、誤りがあれば修正案を提示
-2. **参考情報の付与**: 信頼性の高い情報源を3〜5個調査してURLリストを作成
-3. **文字数の肉付け**: 約4,000字以上を目安に加筆（冗長にならないよう注意）
-4. **SNS調査**: X等でテーマに関する意見を調査し、記事に反映
+【成果物】3つのMarkdownファイルを作成してください
+1. 推敲・加筆済みのNote記事
+2. ファクトチェック結果レポート
+3. 参考情報源URLリスト
 
-## 成果物（3つ明確に分けて提示）
-
-1. 推敲・加筆済みのNote記事（Markdown形式）
-2. ファクトチェック結果レポート（修正箇所、理由、参考情報源）
-3. 参考情報源のURLリスト
-
-## 記事の特徴分析（著者のスタイル）
-
+【著者のスタイル】
 {ARTICLE_ANALYSIS}
 """
 
@@ -88,23 +85,73 @@ async def write_file_async(file_path: Path, content: str) -> None:
         await f.write(content)
 
 
-async def get_latest_draft() -> Optional[tuple[Path, str]]:
-    """最新の下書きファイルを取得"""
+def list_draft_files() -> list[Path]:
+    """下書きファイルの一覧を取得"""
     if not INPUT_DIR.exists():
-        print(f"📁 入力ディレクトリが存在しません: {INPUT_DIR}")
-        return None
+        return []
 
-    md_files = list(INPUT_DIR.glob("*.md"))
+    md_files = [f for f in INPUT_DIR.glob("*.md") if f.is_file()]
+    # 更新日時でソート（新しい順）
+    md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    return md_files
+
+
+def select_draft_file(md_files: list[Path]) -> Optional[Path]:
+    """ユーザーに下書きファイルを選択させる"""
     if not md_files:
         print("📭 下書きファイルが見つかりません")
         return None
 
-    # 更新日時でソートして最新を取得
-    latest = max(md_files, key=lambda f: f.stat().st_mtime)
-    print(f"📄 最新の下書き: {latest.name}")
+    print("\n📄 下書きファイル一覧:")
+    print("-" * 60)
+    for i, f in enumerate(md_files, 1):
+        # ファイルサイズと更新日時を表示
+        size_kb = f.stat().st_size / 1024
+        mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        print(f"  [{i:2d}] {f.name}")
+        print(f"       ({size_kb:.1f} KB, 更新: {mtime})")
+    print("-" * 60)
+    print("  [0] キャンセル")
+    print()
 
-    content = await read_file_async(latest)
-    return (latest, content)
+    while True:
+        try:
+            choice = input("📝 処理するファイル番号を入力してください: ").strip()
+            if choice == "0":
+                print("❌ キャンセルしました")
+                return None
+
+            idx = int(choice) - 1
+            if 0 <= idx < len(md_files):
+                selected = md_files[idx]
+                print(f"\n✅ 選択: {selected.name}")
+                return selected
+            else:
+                print(f"⚠️ 1〜{len(md_files)} の範囲で入力してください")
+        except ValueError:
+            print("⚠️ 数字を入力してください")
+        except KeyboardInterrupt:
+            print("\n❌ キャンセルしました")
+            return None
+
+
+async def get_selected_draft() -> Optional[tuple[Path, str]]:
+    """ユーザーが選択した下書きファイルを取得"""
+    if not INPUT_DIR.exists():
+        print(f"📁 入力ディレクトリが存在しません: {INPUT_DIR}")
+        return None
+
+    md_files = list_draft_files()
+    if not md_files:
+        print("📭 下書きファイルが見つかりません")
+        return None
+
+    selected = select_draft_file(md_files)
+    if not selected:
+        return None
+
+    content = await read_file_async(selected)
+    return (selected, content)
 
 
 async def get_article_analysis() -> str:
@@ -173,30 +220,42 @@ async def wait_for_processing_complete(page: Page, timeout_minutes: int = 30) ->
         except:
             pass
 
-        # ========== 処理完了の判定（最低待機時間経過後） ==========
-        if elapsed >= min_wait_time:
-            # 処理中のインジケーターをチェック
-            is_processing = False
-            try:
-                # 「ユーザーを待っています」などの表示がないか確認
-                waiting_text = await page.locator('text=/待っています|実行中|処理中/').count()
-                loading_indicators = await page.locator('[class*="loading"], [class*="spinner"]').count()
-                is_processing = waiting_text > 0 or loading_indicators > 0
-            except:
-                pass
+        # ========== 「ユーザーを待っています」状態を検出して自動返信 ==========
+        try:
+            # ManusAIがユーザーの返信を待っている場合
+            waiting_for_user = page.locator('text=/返信後に作業を続けます|ユーザーを待っています/')
+            if await waiting_for_user.count() > 0:
+                print("   🔔 ManusAIがユーザーの返信を待っています")
 
-            # チャット内に添付ファイルが表示されているか確認
-            try:
-                # 生成されたファイルを示す要素を探す（チャット内の添付ファイル）
-                # より具体的なセレクタ：ファイル名を含む要素
-                file_elements = page.locator('[class*="message"] [class*="file"], [class*="attachment"], [class*="artifact"]')
-                file_count = await file_elements.count()
+                # 入力欄を探して返信を送信
+                textarea = page.locator('textarea[placeholder*="メッセージ"], textarea').first
+                if await textarea.is_visible():
+                    await textarea.fill("はい、添付ファイルを確認して処理を続けてください。")
+                    await page.wait_for_timeout(500)
 
-                if file_count >= 3 and not is_processing:
-                    print(f"✅ 処理完了（{elapsed}秒）- {file_count}個のファイルを検出")
-                    return True
-            except:
-                pass
+                    # 送信ボタンをクリック
+                    send_btn = page.locator('button[type="submit"], button:has(svg)').last
+                    if await send_btn.is_visible():
+                        await send_btn.click()
+                        print("   ✅ 自動返信を送信しました")
+                        await page.wait_for_timeout(3000)
+        except Exception as e:
+            print(f"   ⚠️ 自動返信エラー: {e}")
+
+        # ========== タスク完了の検出 ==========
+        try:
+            # 「タスクが完了しました」を検出
+            completed = await page.locator('text="タスクが完了しました"').count()
+            if completed > 0:
+                print(f"✅ タスク完了を検出（{elapsed}秒）")
+                await page.screenshot(path=str(OUTPUT_DIR / "debug_task_completed.png"))
+                return True
+
+            if elapsed % 30 == 0:  # 30秒ごとに状況を表示
+                print(f"   ⏳ タスク完了待機中...（{elapsed}秒経過）")
+        except Exception as e:
+            if elapsed % 60 == 0:
+                print(f"   ⚠️ 検出エラー: {e}")
 
         print(f"⏳ {elapsed}秒経過...")
         await page.wait_for_timeout(check_interval)
@@ -222,6 +281,58 @@ async def extract_outputs(page: Page, original_path: Path) -> dict[str, str]:
     title = extract_title_from_filename(original_path.name)
     downloaded_files = []
 
+    # 日付_記事名フォルダを作成
+    folder_name = f"{timestamp}_{title}"
+    output_folder = OUTPUT_DIR / folder_name
+    output_folder.mkdir(parents=True, exist_ok=True)
+    print(f"   📁 出力フォルダ作成: {output_folder}")
+
+    # ========== 手動ダウンロード方式 ==========
+    import time
+    downloads_dir = Path.home() / "Downloads"
+
+    # ダウンロード前の.mdファイル一覧を取得
+    before_download = set(downloads_dir.glob("*.md"))
+
+    print("\n" + "=" * 60)
+    print("📥 手動でファイルをダウンロードしてください")
+    print("=" * 60)
+    print(f"   1. 各ファイルカードをクリックして拡大")
+    print(f"   2. 右上のダウンロードボタン（↓）をクリック")
+    print(f"   3. 「Markdown」を選択してダウンロード")
+    print(f"   4. 3ファイル全てダウンロードしてください：")
+    print(f"      - メイン記事")
+    print(f"      - ファクトチェック結果レポート")
+    print(f"      - 参考情報源URLリスト")
+    print("=" * 60)
+    print("   完了したら、Playwright Inspectorで Resume をクリック")
+    print("=" * 60 + "\n")
+
+    await page.pause()
+
+    # ダウンロード後の.mdファイル一覧を取得
+    after_download = set(downloads_dir.glob("*.md"))
+
+    # 新しくダウンロードされたファイルを特定
+    new_files = after_download - before_download
+    print(f"   🔍 新しくダウンロードされたファイル: {len(new_files)}個")
+
+    # ファイルを出力フォルダに移動
+    for md_file in new_files:
+        try:
+            dest = output_folder / md_file.name
+            md_file.rename(dest)
+            downloaded_files.append(dest)
+            print(f"   ✅ 移動: {md_file.name}")
+        except Exception as e:
+            print(f"   ⚠️ 移動エラー: {md_file.name} - {e}")
+
+    print(f"   📊 移動完了: {len(downloaded_files)}ファイル -> {output_folder.name}/")
+
+    outputs["output_folder"] = str(output_folder)
+    outputs["downloaded_files"] = [str(f) for f in downloaded_files]
+    return outputs
+
     try:
         # ========== ファイルカードを探す ==========
         # ManusAIのファイルは「Markdown · X.XX KB」形式で表示される
@@ -231,10 +342,9 @@ async def extract_outputs(page: Page, original_path: Path) -> dict[str, str]:
         file_patterns = [
             ("fact_check", ["ファクトチェック結果レポート", "ファクトチェック"]),
             ("references", ["参考情報源URLリスト", "参考情報源", "参考URL"]),
-            ("revised_article", ["推敲", "加筆", "Sora", "衝撃"]),  # メイン記事（タイトルに含まれる可能性）
+            ("revised_article", ["【2026", "【2025", "指示待ちAI", "自律型"]),  # メイン記事
         ]
 
-        # 「Markdown · 」を含む要素を探す（ファイルサイズ表示）
         print("   🔍 ファイルカードを検索中...")
 
         # 方法1: テキストでファイルカードを検索
@@ -321,81 +431,115 @@ async def extract_outputs(page: Page, original_path: Path) -> dict[str, str]:
                 # スクリーンショット保存
                 await page.screenshot(path=str(OUTPUT_DIR / f"debug_06_file_expanded_{i+1}.png"))
 
-                # ========== ダウンロードボタンを探す ==========
-                # 右上に表示されるダウンロードアイコンを探す
+                # ========== ダウンロードボタンを探す（右上のアイコン） ==========
+                await page.wait_for_timeout(2000)
+                await page.screenshot(path=str(OUTPUT_DIR / f"debug_07_file_opened_{i+1}.png"))
+
+                # 右上のボタン群: 共有(↗), ダウンロード(↓), ..., □, ×
+                # ダウンロードボタンは x=1050-1080 付近にある
+                download_btn = None
+
+                # 方法1: aria-label で探す
                 download_selectors = [
+                    'button[aria-label*="ダウンロード"]',
                     'button[aria-label*="download"]',
                     'button[aria-label*="Download"]',
-                    'button[aria-label*="ダウンロード"]',
-                    '[class*="download"]',
-                    'button:has(svg[class*="download"])',
-                    'a[download]',
-                    # アイコンボタン（SVG内のpathで判定）
-                    'button:has(svg)',
                 ]
+                for sel in download_selectors:
+                    try:
+                        btn = page.locator(sel).first
+                        if await btn.is_visible():
+                            download_btn = btn
+                            print(f"      📍 ダウンロードボタン発見（{sel}）")
+                            break
+                    except:
+                        continue
 
-                # ダウンロードイベントをリッスン
-                async with page.expect_download(timeout=30000) as download_info:
-                    download_clicked = False
+                # 方法2: x座標でダウンロードボタンを特定（共有の右隣）
+                if not download_btn:
+                    print("      🔍 右上のボタンを座標で検索...")
+                    all_buttons = page.locator('button')
+                    btn_count = await all_buttons.count()
 
-                    # ダウンロードボタンを探してクリック
-                    for dl_selector in download_selectors:
+                    for j in range(btn_count):
                         try:
-                            dl_btns = page.locator(dl_selector)
-                            dl_count = await dl_btns.count()
-
-                            for j in range(dl_count):
-                                dl_btn = dl_btns.nth(j)
-                                if await dl_btn.is_visible():
-                                    # ボタンの位置を確認（右上にあるか）
-                                    box = await dl_btn.bounding_box()
-                                    if box and box['x'] > 800:  # 画面右側にある
-                                        await dl_btn.click()
-                                        download_clicked = True
-                                        print(f"      📥 ダウンロードボタンクリック: {dl_selector}")
-                                        break
-                            if download_clicked:
-                                break
+                            btn = all_buttons.nth(j)
+                            if await btn.is_visible():
+                                box = await btn.bounding_box()
+                                # ダウンロードボタン: y < 100, x が 1040-1090 の範囲
+                                if box and box['y'] < 100 and 1040 < box['x'] < 1090:
+                                    download_btn = btn
+                                    print(f"      📍 ダウンロードボタン発見: x={box['x']:.0f}, y={box['y']:.0f}")
+                                    break
                         except:
                             continue
 
-                    # フォールバック: 右上領域の全てのボタンを試す
-                    if not download_clicked:
+                # 方法3: ヘッダーボタンの3番目（0: 共有, 1: ダウンロード ではなく実際の順序で）
+                if not download_btn:
+                    header_buttons = []
+                    all_buttons = page.locator('button')
+                    btn_count = await all_buttons.count()
+
+                    for j in range(btn_count):
                         try:
-                            all_buttons = page.locator('button')
-                            btn_count = await all_buttons.count()
-                            for j in range(btn_count):
-                                btn = all_buttons.nth(j)
-                                if await btn.is_visible():
-                                    box = await btn.bounding_box()
-                                    # 右上にあり、小さいボタン（アイコンボタン）を探す
-                                    if box and box['x'] > 900 and box['width'] < 60 and box['height'] < 60:
-                                        await btn.click()
-                                        download_clicked = True
-                                        print(f"      📥 右上のボタンをクリック")
-                                        break
+                            btn = all_buttons.nth(j)
+                            if await btn.is_visible():
+                                box = await btn.bounding_box()
+                                if box and box['y'] < 100 and box['x'] > 1000:
+                                    header_buttons.append((btn, box))
                         except:
-                            pass
+                            continue
 
-                    if not download_clicked:
-                        print(f"      ⚠️ ダウンロードボタンが見つかりません")
-                        await page.keyboard.press('Escape')
-                        await page.wait_for_timeout(1000)
-                        continue
+                    header_buttons.sort(key=lambda x: x[1]['x'])
+                    print(f"      📊 ヘッダーボタン: {len(header_buttons)}個")
+                    for idx, (btn, box) in enumerate(header_buttons):
+                        print(f"         [{idx}] x={box['x']:.0f}")
 
-                # ダウンロード完了を待つ
+                    # インデックス1がダウンロード（0が共有）
+                    if len(header_buttons) >= 2:
+                        download_btn = header_buttons[1][0]
+                        print(f"      📍 インデックス1のボタンを使用")
+
+                if not download_btn:
+                    print(f"      ⚠️ ダウンロードボタンが見つかりません")
+                    await page.keyboard.press('Escape')
+                    await page.wait_for_timeout(1000)
+                    continue
+
+                # ダウンロードボタンをクリック → メニュー表示
+                await download_btn.click()
+                print(f"      📥 ダウンロードボタンをクリック")
+                await page.wait_for_timeout(1500)
+                await page.screenshot(path=str(OUTPUT_DIR / f"debug_08_download_menu_{i+1}.png"))
+
+                # 「Markdown」オプションが表示されているか確認
+                markdown_option = page.locator('text="Markdown"').first
+                if not await markdown_option.is_visible():
+                    print(f"      ⚠️ Markdownオプションが見つかりません（別のメニューが開いた可能性）")
+                    await page.keyboard.press('Escape')
+                    await page.wait_for_timeout(500)
+                    continue
+
+                # 「Markdown」を選択してダウンロード
                 try:
+                    async with page.expect_download(timeout=60000) as download_info:
+                        await markdown_option.click()
+                        print(f"      📄 Markdownを選択")
+
                     download = await download_info.value
                     suggested_name = download.suggested_filename
-                    filename = f"{timestamp}_{title}_{suffix}.md"
-                    filepath = OUTPUT_DIR / filename
+                    filename = f"{suffix}.md"
+                    filepath = output_folder / filename
 
                     await download.save_as(str(filepath))
                     downloaded_files.append(filepath)
-                    outputs[key] = f"(ダウンロード済み: {filepath})"
-                    print(f"      ✅ {filename}")
+                    outputs[key] = str(filepath)
+                    print(f"      ✅ 保存: {filepath}")
+
                 except Exception as e:
-                    print(f"      ⚠️ ダウンロード保存エラー: {e}")
+                    print(f"      ⚠️ ダウンロードエラー: {e}")
+                    await page.keyboard.press('Escape')
+                    await page.wait_for_timeout(500)
 
                 # ファイルプレビューを閉じる
                 await page.keyboard.press('Escape')
@@ -476,13 +620,6 @@ async def process_with_manus(context: BrowserContext, prompt: str, draft_file: P
         # スクリーンショット保存（デバッグ用）
         await page.screenshot(path=str(OUTPUT_DIR / "debug_01_initial.png"))
 
-        # デバッグモード: 一時停止
-        if DEBUG_MODE:
-            print("\n🔍 デバッグモード: ページを確認してください")
-            print("   手動でログインやUI確認を行えます")
-            print("   確認後、ブラウザのPlaywright Inspectorで Resume をクリック")
-            await page.pause()
-
         # ログイン状態を確認（必要に応じてログインフローを追加）
         # 注意: セッション永続化により、2回目以降はログイン不要の想定
 
@@ -530,96 +667,46 @@ async def process_with_manus(context: BrowserContext, prompt: str, draft_file: P
         await page.wait_for_timeout(2000)
         await page.screenshot(path=str(OUTPUT_DIR / "debug_01b_new_task.png"))
 
-        # ========== ファイルアップロード（ドラッグ&ドロップ） ==========
-        print("📎 ファイルをドラッグ&ドロップでアップロード中...")
+        # ========== ファイルアップロード ==========
+        print("📎 ファイルをアップロード...")
+        print(f"   📄 アップロードするファイル: {draft_file}")
 
         file_uploaded = False
 
-        # 入力欄を見つける
-        input_selectors = [
-            'textarea',
-            '[contenteditable="true"]',
-            '[class*="input"]',
-            '[class*="prompt"]'
-        ]
+        if DEBUG_MODE:
+            # 手動アップロードモード（デバッグ時）
+            print("\n" + "=" * 50)
+            print("📎 手動でファイルをアップロードしてください")
+            print("=" * 50)
+            print(f"   1. 入力欄の左下にある「+」ボタンをクリック")
+            print(f"   2. ファイルを選択: {draft_file}")
+            print(f"   3. または、上記ファイルをドラッグ&ドロップ")
+            print("=" * 50)
+            print("   完了したら、Playwright Inspectorで Resume をクリック")
+            print("=" * 50 + "\n")
 
-        drop_target = None
-        for selector in input_selectors:
+            await page.pause()  # 手動操作のため一時停止
+
+            await page.wait_for_timeout(2000)
+            await page.screenshot(path=str(OUTPUT_DIR / "debug_02_file_uploaded.png"))
+            print("   ✅ 手動アップロード完了を確認")
+            file_uploaded = True
+        else:
+            # 自動アップロード試行
             try:
-                element = page.locator(selector).first
-                if await element.is_visible():
-                    drop_target = element
-                    print(f"   📍 ドロップ先を発見: {selector}")
-                    break
-            except:
-                continue
-
-        if drop_target:
-            try:
-                # ファイルの内容を読み込む
-                with open(draft_file, 'rb') as f:
-                    file_content = f.read()
-
-                # DataTransferイベントをシミュレートしてドラッグ&ドロップ
-                # Playwrightではset_input_filesの代わりにJavaScriptでdropイベントを発火
-                await page.evaluate('''
-                    async (args) => {
-                        const { targetSelector, fileName, fileContent } = args;
-                        const target = document.querySelector(targetSelector);
-                        if (!target) return false;
-
-                        // Base64をArrayBufferに変換
-                        const binaryString = atob(fileContent);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }
-
-                        // Fileオブジェクトを作成
-                        const file = new File([bytes], fileName, { type: 'text/markdown' });
-
-                        // DataTransferオブジェクトを作成
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.items.add(file);
-
-                        // dropイベントを発火
-                        const dropEvent = new DragEvent('drop', {
-                            bubbles: true,
-                            cancelable: true,
-                            dataTransfer: dataTransfer
-                        });
-                        target.dispatchEvent(dropEvent);
-
-                        return true;
-                    }
-                ''', {
-                    'targetSelector': 'textarea',
-                    'fileName': draft_file.name,
-                    'fileContent': __import__('base64').b64encode(file_content).decode('utf-8')
-                })
-
-                await page.wait_for_timeout(2000)
-                print(f"   📎 ドラッグ&ドロップでファイルを添付: {draft_file.name}")
-                file_uploaded = True
-
+                # input[type="file"]を探して使用
+                file_inputs = page.locator('input[type="file"]')
+                input_count = await file_inputs.count()
+                if input_count > 0:
+                    await file_inputs.first.set_input_files(str(draft_file))
+                    await page.wait_for_timeout(2000)
+                    file_uploaded = True
+                    print(f"   ✅ ファイルアップロード成功: {draft_file.name}")
             except Exception as e:
-                print(f"   ⚠️ ドラッグ&ドロップエラー: {e}")
+                print(f"   ⚠️ 自動アップロードエラー: {e}")
 
-        # フォールバック: 非表示のinput[type="file"]を探す
-        if not file_uploaded:
-            try:
-                file_input = page.locator('input[type="file"]').first
-                await file_input.set_input_files(str(draft_file))
-                file_uploaded = True
-                print(f"   📎 input[type=file]でアップロード: {draft_file.name}")
-            except:
-                pass
-
-        if not file_uploaded:
-            print("   ⚠️ ファイルアップロードできませんでした（プロンプトのみで続行）")
-
-        await page.wait_for_timeout(2000)
-        await page.screenshot(path=str(OUTPUT_DIR / "debug_02_file_uploaded.png"))
+            if not file_uploaded:
+                print("   ⚠️ ファイルアップロードできませんでした（プロンプトのみで続行）")
 
         # ========== プロンプト入力 ==========
         print("✍️ プロンプトを入力中...")
@@ -752,8 +839,8 @@ async def main():
     # 出力ディレクトリを作成
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 最新の下書きを取得
-    draft = await get_latest_draft()
+    # ユーザーに下書きを選択させる
+    draft = await get_selected_draft()
     if not draft:
         print("❌ 処理する記事がありません")
         return
