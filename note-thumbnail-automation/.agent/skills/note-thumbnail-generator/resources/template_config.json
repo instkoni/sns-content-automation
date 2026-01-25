@@ -1,0 +1,191 @@
+{
+    "人生": {
+        "template_filename": "人生.png",
+        "illustration_position": {
+            "x": 100,
+            "y": 150
+        },
+        "illustration_size": {
+            "width": 400,
+            "height": 400
+        },
+        "title_position": {
+            "x": 50,
+            "y": 600
+        },
+        "title_font_size": 48,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 900,
+        "title_max_height": 150,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#333333",
+        "number_format": "#{number}"
+    },
+    "副業": {
+        "template_filename": "副業.png",
+        "illustration_position": {
+            "x": 150,
+            "y": 100
+        },
+        "illustration_size": {
+            "width": 350,
+            "height": 350
+        },
+        "title_position": {
+            "x": 50,
+            "y": 550
+        },
+        "title_font_size": 45,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 850,
+        "title_max_height": 140,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#1a1a1a",
+        "number_format": "#{number}"
+    },
+    "AI": {
+        "template_filename": "AI.png",
+        "illustration_position": {
+            "x": 120,
+            "y": 120
+        },
+        "illustration_size": {
+            "width": 380,
+            "height": 380
+        },
+        "title_position": {
+            "x": 50,
+            "y": 580
+        },
+        "title_font_size": 50,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 880,
+        "title_max_height": 160,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#0066cc",
+        "number_format": "#{number}"
+    },
+    "有料": {
+        "template_filename": "有料.png",
+        "illustration_position": {
+            "x": 130,
+            "y": 130
+        },
+        "illustration_size": {
+            "width": 370,
+            "height": 370
+        },
+        "title_position": {
+            "x": 50,
+            "y": 570
+        },
+        "title_font_size": 46,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 870,
+        "title_max_height": 145,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#8b7355",
+        "number_format": "#{number}"
+    },
+    "雑記": {
+        "template_filename": "雑記.png",
+        "illustration_position": {
+            "x": 110,
+            "y": 140
+        },
+        "illustration_size": {
+            "width": 390,
+            "height": 390
+        },
+        "title_position": {
+            "x": 50,
+            "y": 590
+        },
+        "title_font_size": 47,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 890,
+        "title_max_height": 150,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#555555",
+        "number_format": "#{number}"
+    },
+    "資格": {
+        "template_filename": "資格.png",
+        "illustration_position": {
+            "x": 140,
+            "y": 110
+        },
+        "illustration_size": {
+            "width": 360,
+            "height": 360
+        },
+        "title_position": {
+            "x": 50,
+            "y": 560
+        },
+        "title_font_size": 44,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 860,
+        "title_max_height": 135,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#003366",
+        "number_format": "#{number}"
+    },
+    "本業": {
+        "template_filename": "本業.png",
+        "illustration_position": {
+            "x": 125,
+            "y": 125
+        },
+        "illustration_size": {
+            "width": 375,
+            "height": 375
+        },
+        "title_position": {
+            "x": 50,
+            "y": 575
+        },
+        "title_font_size": 46,
+        "title_color": "#000000",
+        "highlight_color": "#D32F2F",
+        "title_max_width": 875,
+        "title_max_height": 145,
+        "number_position": {
+            "x": 1100,
+            "y": 50
+        },
+        "number_font_size": 60,
+        "number_color": "#2c3e50",
+        "number_format": "#{number}"
+    }
+}

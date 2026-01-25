@@ -320,64 +320,96 @@ async def extract_outputs(page: Page, original_path: Path) -> dict[str, str]:
         downloads_dir = Path.home() / "Downloads"
         before_download = set(downloads_dir.glob("*.zip"))
 
-        # 一括ダウンロードボタンを探す（複数のセレクタを試す）
-        bulk_download_selectors = [
-            'text="一括ダウンロード"',
-            'button:has-text("一括ダウンロード")',
-            '[aria-label*="ダウンロード"]',
-        ]
+        download_btn = None
 
+        try:
+            # ヘッダーテキストの位置を取得
+            header_text = page.locator('text="このタスク内のすべてのファイル"')
+            if await header_text.count() > 0:
+                header_box = await header_text.first.bounding_box()
+                if header_box:
+                    print(f"   📍 ヘッダー位置: y={header_box['y']:.0f}")
+
+                    # ヘッダーと同じ行（y座標が近い）のボタンを探す
+                    all_buttons = page.locator('button')
+                    btn_count = await all_buttons.count()
+
+                    header_row_buttons = []
+                    for i in range(btn_count):
+                        try:
+                            btn = all_buttons.nth(i)
+                            if not await btn.is_visible():
+                                continue
+                            box = await btn.bounding_box()
+                            # ヘッダーと同じ行（y座標の差が50px以内）かつヘッダーより右側
+                            if box and abs(box['y'] - header_box['y']) < 50 and box['x'] > header_box['x']:
+                                header_row_buttons.append((btn, box))
+                        except:
+                            continue
+
+                    # x座標でソート
+                    header_row_buttons.sort(key=lambda x: x[1]['x'])
+                    print(f"   📊 ヘッダー行のボタン: {len(header_row_buttons)}個")
+
+                    for idx, (btn, box) in enumerate(header_row_buttons):
+                        print(f"      [{idx}] x={box['x']:.0f}")
+
+                    # 右端が×、その左隣が一括ダウンロード
+                    if len(header_row_buttons) >= 2:
+                        download_btn = header_row_buttons[-2][0]
+                        print(f"   ✅ 一括ダウンロードボタン: 右から2番目")
+                    elif len(header_row_buttons) == 1:
+                        download_btn = header_row_buttons[0][0]
+                        print(f"   ✅ ボタン1つのみ")
+        except Exception as e:
+            print(f"   ⚠️ ボタン検索エラー: {e}")
+
+        # ダウンロード実行
         download_clicked = False
-        for selector in bulk_download_selectors:
-            try:
-                btn = page.locator(selector)
-                if await btn.count() > 0 and await btn.first.is_visible():
-                    # ダウンロードイベントを待機してクリック
-                    async with page.expect_download(timeout=120000) as download_info:
-                        await btn.first.click()
-                        print(f"   📥 一括ダウンロードをクリック（{selector}）")
+        zip_path = None
 
-                    download = await download_info.value
-                    zip_filename = download.suggested_filename
-                    zip_path = downloads_dir / zip_filename
-                    await download.save_as(str(zip_path))
-                    print(f"   ✅ ZIPダウンロード完了: {zip_filename}")
-                    download_clicked = True
-                    break
+        if download_btn:
+            try:
+                # ダウンロードイベントを待機してクリック
+                async with page.expect_download(timeout=120000) as download_info:
+                    await download_btn.click()
+                    print("   📥 一括ダウンロードをクリック")
+
+                download = await download_info.value
+                zip_filename = download.suggested_filename
+                zip_path = downloads_dir / zip_filename
+                await download.save_as(str(zip_path))
+                print(f"   ✅ ZIPダウンロード完了: {zip_filename}")
+                download_clicked = True
             except Exception as e:
-                print(f"   ⚠️ {selector} でエラー: {e}")
-                continue
+                print(f"   ⚠️ ダウンロードイベントエラー: {e}")
+                # クリックはしたがイベントが取得できなかった場合
+                download_clicked = False
 
         # ダウンロードイベントで取得できなかった場合、ファイルシステムで検出
-        if not download_clicked:
-            print("   🔄 ダウンロードイベント取得失敗、ファイルシステムで検出中...")
-            # ボタンを直接クリック
-            for selector in bulk_download_selectors:
-                try:
-                    btn = page.locator(selector)
-                    if await btn.count() > 0 and await btn.first.is_visible():
-                        await btn.first.click()
-                        print(f"   📥 一括ダウンロードをクリック（{selector}）")
-                        download_clicked = True
-                        break
-                except:
-                    continue
+        if not download_clicked and download_btn:
+            print("   🔄 ファイルシステムでZIPを検出中...")
+            try:
+                await download_btn.click()
+                print("   📥 一括ダウンロードを再クリック")
+            except:
+                pass
 
-            if download_clicked:
-                # ダウンロード完了を待つ（最大60秒）
-                print("   ⏳ ダウンロード完了を待機中...")
-                for _ in range(60):
-                    await page.wait_for_timeout(1000)
-                    after_download = set(downloads_dir.glob("*.zip"))
-                    new_zips = after_download - before_download
-                    if new_zips:
-                        zip_path = list(new_zips)[0]
-                        print(f"   ✅ ZIPファイル検出: {zip_path.name}")
-                        break
-                else:
-                    print("   ⚠️ ZIPファイルのダウンロードがタイムアウトしました")
-                    zip_path = None
+            # ダウンロード完了を待つ（最大60秒）
+            print("   ⏳ ダウンロード完了を待機中...")
+            for wait_sec in range(60):
+                await page.wait_for_timeout(1000)
+                after_download = set(downloads_dir.glob("*.zip"))
+                new_zips = after_download - before_download
+                if new_zips:
+                    zip_path = list(new_zips)[0]
+                    print(f"   ✅ ZIPファイル検出: {zip_path.name}")
+                    download_clicked = True
+                    break
+                if wait_sec % 10 == 0:
+                    print(f"      {wait_sec}秒経過...")
             else:
+                print("   ⚠️ ZIPファイルのダウンロードがタイムアウトしました")
                 zip_path = None
 
         # ZIPファイルを解凍して出力フォルダに移動

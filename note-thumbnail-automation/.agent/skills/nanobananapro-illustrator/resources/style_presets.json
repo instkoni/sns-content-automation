@@ -1,0 +1,44 @@
+{
+    "人生": {
+        "style": "warm and inspiring, life-coaching style",
+        "color_palette": "pastel colors, soft tones",
+        "theme": "personal growth, happiness, mindfulness",
+        "tone": "温かく、インスピレーションを与える、共感を呼ぶ"
+    },
+    "副業": {
+        "style": "modern and professional, business-oriented",
+        "color_palette": "clean design, blue and green tones",
+        "theme": "entrepreneurship, side hustle, financial growth",
+        "tone": "実用的、具体的な数字、再現性を強調"
+    },
+    "AI": {
+        "style": "futuristic and tech-savvy, digital aesthetic",
+        "color_palette": "vibrant colors, neon accents",
+        "theme": "technology, innovation, artificial intelligence",
+        "tone": "最新性、技術的、未来志向"
+    },
+    "有料": {
+        "style": "premium and exclusive, high-quality feel",
+        "color_palette": "elegant, gold and dark tones",
+        "theme": "luxury, exclusivity, premium content",
+        "tone": "プレミアム感、限定性、高品質を強調"
+    },
+    "雑記": {
+        "style": "casual and friendly, everyday life style",
+        "color_palette": "soft tones, warm colors",
+        "theme": "daily life, random thoughts, personal stories",
+        "tone": "カジュアル、親しみやすい、日常的"
+    },
+    "資格": {
+        "style": "academic and trustworthy, educational theme",
+        "color_palette": "structured, blue and white",
+        "theme": "learning, certification, professional development",
+        "tone": "信頼性、実績、合格への道筋"
+    },
+    "本業": {
+        "style": "corporate and serious, professional workplace",
+        "color_palette": "formal, navy and gray",
+        "theme": "career, workplace, professional skills",
+        "tone": "プロフェッショナル、キャリア志向、実践的"
+    }
+}
