@@ -2,6 +2,7 @@
 """
 Note記事サムネイル生成用ローカルサーバー
 FastAPI + ngrokでCanvaアプリにデータを提供します
+（ngrokコマンドを直接使用するバージョン）
 """
 
 import argparse
@@ -9,24 +10,49 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
 import sys
+import time
+import webbrowser
+import requests
 from contextlib import asynccontextmanager
 
 try:
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
-    from pyngrok import ngrok
 except ImportError:
     print("エラー: 必要なパッケージがインストールされていません")
     print("以下のコマンドでインストールしてください:")
-    print("pip install fastapi uvicorn pyngrok")
+    print("pip install fastapi uvicorn")
+    print("pip install fastapi uvicorn")
     sys.exit(1)
+
+from pathlib import Path
+
+# 設定ファイルのパス
+SCRIPT_DIR = Path(__file__).parent
+CONFIG_DIR = SCRIPT_DIR / "config"
+GENRES_FILE = CONFIG_DIR / "genres.json"
+
+def load_genres():
+    """ジャンル設定を読み込む"""
+    try:
+        if GENRES_FILE.exists():
+            with open(GENRES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        print(f"ジャンル設定読み込みエラー: {e}")
+        return {}
+
+# ジャンル設定をロード
+genres_config = load_genres()
 
 
 # グローバル変数
 server_data = {}
-ngrok_tunnel = None
+ngrok_process = None
 shutdown_event = asyncio.Event()
 
 
@@ -51,10 +77,28 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root():
+    """ルートでもデータを返す（Canvaアプリ用）"""
+    print("📥 アクセス: / (ルート) - データを返します")
+    print(f"   返すデータ: {server_data}")
+    return server_data
+
+
 @app.get("/data")
 async def get_data():
     """タイトルとキーワードのデータを返す"""
+    print("📥 アクセス: /data - データを返します")
+    print(f"   返すデータ: {server_data}")
+    print(f"   返すデータ: {server_data}")
     return server_data
+
+
+@app.get("/api/get-genre-config")
+async def get_genre_config():
+    """ジャンル設定を返す"""
+    print("📥 アクセス: /api/get-genre-config")
+    return genres_config
 
 
 @app.post("/shutdown")
@@ -65,18 +109,78 @@ async def shutdown():
     return {"status": "shutting down"}
 
 
+def get_ngrok_public_url():
+    """ngrokのローカルAPIから公開URLを取得"""
+    try:
+        response = requests.get("http://127.0.0.1:4040/api/tunnels" )
+        tunnels = response.json()["tunnels"]
+        for tunnel in tunnels:
+            if tunnel["proto"] == "https":
+                return tunnel["public_url"]
+        # httpsが見つからない場合はhttpを返す
+        for tunnel in tunnels:
+            if tunnel["proto"] == "http":
+                return tunnel["public_url"]
+        return None
+    except Exception as e:
+        print(f"ngrok URLの取得に失敗しました: {e}" )
+        return None
+
+
+def start_ngrok(port):
+    """ngrokプロセスを起動"""
+    global ngrok_process
+    
+    try:
+        print(f"ngrokを起動中（ポート {port}）...")
+        # ngrokコマンドを実行
+        ngrok_process = subprocess.Popen(
+            ["ngrok", "http", str(port )],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # ngrokが起動するまで待機
+        time.sleep(3)
+        
+        # 公開URLを取得
+        public_url = get_ngrok_public_url()
+        
+        if public_url:
+            print(f"✓ ngrokが起動しました: {public_url}")
+            return public_url
+        else:
+            print("エラー: ngrokの公開URLを取得できませんでした")
+            return None
+            
+    except FileNotFoundError:
+        print("エラー: ngrokコマンドが見つかりません")
+        print("\nngrokがインストールされていることを確認してください:")
+        print("https://ngrok.com/download" )
+        print("\nまたは、Homebrewでインストールできます:")
+        print("brew install ngrok/ngrok/ngrok")
+        return None
+    except Exception as e:
+        print(f"エラー: ngrokの起動に失敗しました - {e}")
+        return None
+
+
 def cleanup():
     """クリーンアップ処理"""
-    global ngrok_tunnel
+    global ngrok_process
     print("クリーンアップ中...")
-    if ngrok_tunnel:
+    if ngrok_process:
         try:
             print("ngrokを停止中...")
-            ngrok.disconnect(ngrok_tunnel.public_url)
+            ngrok_process.terminate()
+            ngrok_process.wait(timeout=5)
             print("✓ ngrokを停止しました")
         except Exception as e:
             print(f"ngrok停止時のエラー: {e}")
-    ngrok.kill()
+            try:
+                ngrok_process.kill()
+            except:
+                pass
 
 
 def signal_handler(sig, frame):
@@ -88,7 +192,7 @@ def signal_handler(sig, frame):
 
 def start_server(title, keywords, genre, port=5002):
     """サーバーを起動する"""
-    global server_data, ngrok_tunnel
+    global server_data
     
     # データを設定
     server_data = {
@@ -109,38 +213,54 @@ def start_server(title, keywords, genre, port=5002):
     signal.signal(signal.SIGINT, signal_handler)
     
     # ngrokを起動
-    try:
-        print(f"ngrokを起動中（ポート {port}）...")
-        ngrok_tunnel = ngrok.connect(port, "http" )
-        public_url = ngrok_tunnel.public_url
-        print(f"✓ ngrokが起動しました: {public_url}")
-    except Exception as e:
-        print(f"エラー: ngrokの起動に失敗しました - {e}")
-        print("\nngrokがインストールされていることを確認してください:")
-        print("https://ngrok.com/download" )
+    public_url = start_ngrok(port)
+    
+    if not public_url:
+        print("\nngrokの起動に失敗しました。終了します。")
         sys.exit(1)
+
+    # CanvaテンプレートURL
+    canva_template_url = "https://www.canva.com/design/DAG_VDDB5a8/LY89bXNuNx8IAooDQXFQNg/edit"
+
+    # 見やすい表示
+    print("\n" + "=" * 70)
+    print("✅ サーバーが起動しました！")
+    print("=" * 70)
+    print("=" * 70)
+    print("\n🌐 Canvaアプリに以下のURLを入力してください:\n")
+    print(f"    {public_url}")
+    print(f"\n    (上記のURLをコピーして、Canvaアプリの「サーバーアドレス」欄に入力してください)")
+    print("\n" + "=" * 70)
+    print("\n📝 手順:")
+    print("   1. Canvaテンプレートが自動で開きます")
+    print("   2. 左パネルから「Note Thumbnail Generator」アプリを起動")
+    print("   3. 「サーバーアドレス」欄に上記URLを入力")
+    print("   4. 「接続」ボタンをクリック")
+    print("=" * 70)
+    print(f"\n📊 サーバー情報:")
+    print(f"   データエンドポイント: {public_url}/data")
+    print(f"   終了エンドポイント: {public_url}/shutdown")
+    print("=" * 70)
+
+    # Canvaテンプレートを自動で開く
+    print("\n🎨 Canvaテンプレートを開いています...")
+    try:
+        webbrowser.open(canva_template_url)
+        print("✓ Canvaテンプレートを開きました")
+    except Exception as e:
+        print(f"⚠️  ブラウザの起動に失敗しました: {e}")
+        print(f"   手動で以下のURLを開いてください: {canva_template_url}")
+
+    print("\n⏳ Canvaでの作業が完了すると、サーバーは自動的に終了します。")
+    print("   (Ctrl+Cで手動終了も可能です)")
+    print("=" * 70 + "\n")
     
-    print("\n" + "=" * 60)
-    print("🚀 サーバーが起動しました！")
-    print("=" * 60)
-    print(f"公開URL: {public_url}")
-    print(f"データエンドポイント: {public_url}/data")
-    print(f"終了エンドポイント: {public_url}/shutdown")
-    print("=" * 60)
-    print("\nCanvaでの作業を開始してください。")
-    print("1. Canvaでサムネイルのテンプレートを開いてください。")
-    print("2. 左パネルから「Noteサムネイルアシスタント」アプリを起動してください。")
-    print("3. アプリが自動的にタイトルとキーワードを取得します。")
-    print("4. 記事番号を入力し、素材を選択して、レイアウトを実行してください。")
-    print("\n作業が完了すると、サーバーは自動的に終了します。")
-    print("=" * 60)
-    
-    # サーバーを起動
+    # サーバーを起動（ログレベルをinfoに設定してリクエストを確認）
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
         port=port,
-        log_level="error"
+        log_level="info"
     )
     server = uvicorn.Server(config)
     
