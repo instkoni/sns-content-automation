@@ -1,0 +1,65 @@
+{
+    "人生": {
+        "backgroundColor": "#FF9AA2",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "副業": {
+        "backgroundColor": "#4CAF50",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "AI": {
+        "backgroundColor": "#2196F3",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "有料": {
+        "backgroundColor": "#FFD700",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#333333",
+        "numberColor": "#333333",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "雑記": {
+        "backgroundColor": "#00BCD4",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "資格": {
+        "backgroundColor": "#FF5722",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    },
+    "本業": {
+        "backgroundColor": "#3F51B5",
+        "titlePosition": { "top": 0.75, "left": 0.05 },
+        "numberPosition": { "top": 0.05, "left": 0.85 },
+        "titleColor": "#FFFFFF",
+        "numberColor": "#FFFFFF",
+        "titleFontSize": 48,
+        "numberFontSize": 24
+    }
+}

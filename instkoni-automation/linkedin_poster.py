@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-LinkedIn自動投稿スクリプト v3
-- 最初にインフォグラフィック選択
-- 画像プレビュー機能
+LinkedIn自動投稿スクリプト v4
+- outputsフォルダからlinkedin_draft.mdを選択
+- linkedin_draft.mdから投稿内容と画像パスを読み込み
 - スケジュール設定自動化
 - クリップボード経由のテキスト入力
 """
@@ -11,6 +11,7 @@ import asyncio
 import sys
 import subprocess
 import pyperclip
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
@@ -18,61 +19,100 @@ from playwright.async_api import async_playwright
 # パス設定
 SCRIPT_DIR = Path(__file__).parent.resolve()
 BROWSER_DATA_DIR = SCRIPT_DIR / "browser-data-sns"
-INFOGRAPHIC_DIR = SCRIPT_DIR / "../articles/infographic"
 OUTPUT_DIR = SCRIPT_DIR / "outputs"
 
-# 投稿コンテンツ（URLなし）
-CONTENT_NO_URL = """🎯 ChatGPT Goは本当に「ビジネス革命」なのか？
 
-※2026年1月、OpenAIが発表した月額8ドルの新プラン「ChatGPT Go」について、マーケティング戦略の視点から分析しました。
+def parse_linkedin_draft(draft_path: Path) -> tuple[str, str, list[str]]:
+    """
+    linkedin_draft.mdを解析して、本文・URL・画像パスを抽出する
 
-📌 「ビジネスパーソンのためのAI」という触れ込みで登場したChatGPT Go。しかし、実際に企業の現場で活用されるシーンを想像するのは難しいかもしれません。
+    Returns:
+        tuple[str, str, list[str]]: (本文, URL, 画像パスリスト)
+    """
+    content = draft_path.read_text(encoding='utf-8')
 
-📌 本気でAIを業務に組み込む企業は、すでにPlus以上を導入済み。API利用はプランではなくモデル課金。つまり、このプランの真のターゲットは「ビジネス」ではないのです。
+    # メタ情報からSource URLを抽出
+    source_match = re.search(r'^Source:\s*(.+)$', content, re.MULTILINE)
+    source_url = source_match.group(1).strip() if source_match else ""
 
-✅ 本質①：月額20ドルのPlusを使わない理由がない企業にとって、Goプランは選択肢にならない
+    # 本文を抽出（最初の---と次の---の間）
+    parts = content.split('---')
+    if len(parts) >= 2:
+        body_text = parts[1].strip()
+    else:
+        body_text = ""
 
-✅ 本質②：OpenAIの狙いは「無料ユーザーの有料化」と「広告収益モデルの確立」
+    # 本文の最後に「🔗 記事はこちら」があれば、URLは別途追加
+    # 本文からURLを分離（本文自体はURLを含まない形で保持）
+    content_no_url = body_text
+    url_text = f"\n{source_url}" if source_url else ""
 
-✅ 本質③：2026年2月から広告テスト開始予定。GoogleやMetaと同じプラットフォームビジネスへの転換が始まっている
+    # 画像パスを抽出（## Imagesセクション）
+    images = []
+    images_match = re.search(r'## Images\n((?:- .+\n?)+)', content)
+    if images_match:
+        image_lines = images_match.group(1).strip().split('\n')
+        for line in image_lines:
+            if line.startswith('- '):
+                img_path = line[2:].strip()
+                # パスを正規化
+                img_path_obj = Path(img_path)
+                if img_path_obj.exists():
+                    images.append(str(img_path_obj.resolve()))
+                else:
+                    # 相対パスの場合、draft_pathからの相対パスとして解決
+                    resolved = (draft_path.parent / img_path).resolve()
+                    if resolved.exists():
+                        images.append(str(resolved))
 
-✅ 真に価値があるのは：AIスキルを身につけたい学生・若手社会人、趣味や副業でAIを活用したい個人層
-
-メディアの「革命」という言葉に踊らされず、裏にあるビジネスロジックを冷静に読み解く視点が、AI時代を生き抜く上で最も重要なスキルではないでしょうか。
-
-🔗 記事はこちら"""
-
-URL_TEXT = "\nhttps://note.com/instkoni/n/nfbf576f13775"
+    return content_no_url, url_text, images
 
 
-def select_image_folder() -> tuple[list[str], str]:
-    """画像フォルダを選択し、画像リストを返す"""
+def select_draft_folder() -> tuple[str, str, list[str], str]:
+    """
+    outputsフォルダからlinkedin_draft.mdを含むフォルダを選択し、
+    本文・URL・画像パスを返す
+
+    Returns:
+        tuple[str, str, list[str], str]: (本文, URL, 画像パスリスト, フォルダ名)
+    """
     print("\n" + "=" * 60)
-    print("📁 インフォグラフィック選択")
+    print("📁 LinkedIn投稿フォルダ選択")
     print("=" * 60)
 
-    # フォルダ一覧を取得（タイムスタンプ付きフォルダのみ）
+    # linkedin_draft.mdを含むフォルダ一覧を取得
     folders = []
-    for item in INFOGRAPHIC_DIR.iterdir():
-        if item.is_dir() and item.name[0].isdigit():
-            folders.append(item)
+    for item in OUTPUT_DIR.iterdir():
+        if item.is_dir():
+            draft_file = item / "linkedin_draft.md"
+            if draft_file.exists():
+                folders.append(item)
 
     # タイムスタンプでソート（降順）
     folders.sort(key=lambda x: x.name, reverse=True)
 
     if not folders:
-        print("❌ 画像フォルダが見つかりません")
-        return [], ""
+        print("❌ linkedin_draft.mdを含むフォルダが見つかりません")
+        return "", "", [], ""
 
     # 一覧表示
     print("\n利用可能なフォルダ:")
     for i, folder in enumerate(folders[:10]):
-        # フォルダ内の画像数を数える
-        images = list(folder.glob("*.png")) + list(folder.glob("*.jpg"))
-        # フォルダ名からタイトルを抽出
-        name_parts = folder.name.split("_", 2)
-        title = name_parts[2] if len(name_parts) > 2 else folder.name
-        print(f"  [{i+1}] {title[:50]}... ({len(images)}枚)")
+        draft_file = folder / "linkedin_draft.md"
+        # draft_fileから最初の行（タイトル相当）を取得
+        try:
+            content = draft_file.read_text(encoding='utf-8')
+            # 本文の最初の行を取得（---の後の最初の行）
+            parts = content.split('---')
+            if len(parts) >= 2:
+                body_lines = parts[1].strip().split('\n')
+                title = body_lines[0][:60] if body_lines else folder.name
+            else:
+                title = folder.name
+        except:
+            title = folder.name
+        print(f"  [{i+1}] {folder.name}")
+        print(f"       {title}...")
 
     print()
 
@@ -93,69 +133,80 @@ def select_image_folder() -> tuple[list[str], str]:
         except ValueError:
             print("⚠️ 数字を入力してください")
 
-    # 画像ファイルを取得
-    images = list(selected.glob("*.png")) + list(selected.glob("*.jpg"))
-    images.sort(key=lambda x: x.name)
+    # linkedin_draft.mdを解析
+    draft_file = selected / "linkedin_draft.md"
+    content_no_url, url_text, images = parse_linkedin_draft(draft_file)
 
-    # 画像一覧を表示
+    # 内容を表示
     print(f"\n✅ 選択フォルダ: {selected.name}")
+    print("\n📝 投稿内容プレビュー:")
+    print("-" * 40)
+    preview = content_no_url[:300] + "..." if len(content_no_url) > 300 else content_no_url
+    print(preview)
+    print("-" * 40)
+    print(f"\n🔗 URL: {url_text.strip()}")
     print(f"\n📷 添付される画像 ({len(images)}枚):")
     for i, img in enumerate(images):
-        print(f"   [{i+1}] {img.name}")
+        print(f"   [{i+1}] {Path(img).name}")
 
     # 確認
     print()
     confirm = input("これでよろしいですか？ (Enter=OK / n=キャンセル): ").strip().lower()
     if confirm == "n":
         print("キャンセルしました")
-        return [], ""
+        return "", "", [], ""
 
-    image_paths = [str(img) for img in images]
     folder_name = selected.name
 
-    return image_paths, folder_name
+    return content_no_url, url_text, images, folder_name
 
 
-def select_image_folder_auto(folder_num: int) -> tuple[list[str], str]:
-    """フォルダ番号を指定して自動選択"""
+def select_draft_folder_auto(folder_num: int) -> tuple[str, str, list[str], str]:
+    """
+    フォルダ番号を指定して自動選択
+
+    Returns:
+        tuple[str, str, list[str], str]: (本文, URL, 画像パスリスト, フォルダ名)
+    """
     print("\n" + "=" * 60)
-    print("📁 インフォグラフィック自動選択")
+    print("📁 LinkedIn投稿フォルダ自動選択")
     print("=" * 60)
 
-    # フォルダ一覧を取得
+    # linkedin_draft.mdを含むフォルダ一覧を取得
     folders = []
-    for item in INFOGRAPHIC_DIR.iterdir():
-        if item.is_dir() and item.name[0].isdigit():
-            folders.append(item)
+    for item in OUTPUT_DIR.iterdir():
+        if item.is_dir():
+            draft_file = item / "linkedin_draft.md"
+            if draft_file.exists():
+                folders.append(item)
 
     folders.sort(key=lambda x: x.name, reverse=True)
 
     if not folders:
-        print("❌ 画像フォルダが見つかりません")
-        return [], ""
+        print("❌ linkedin_draft.mdを含むフォルダが見つかりません")
+        return "", "", [], ""
 
     # 指定番号で選択
     idx = folder_num - 1
     if idx < 0 or idx >= len(folders):
         print(f"⚠️ 無効なフォルダ番号: {folder_num}")
-        return [], ""
+        return "", "", [], ""
 
     selected = folders[idx]
 
-    # 画像ファイルを取得
-    images = list(selected.glob("*.png")) + list(selected.glob("*.jpg"))
-    images.sort(key=lambda x: x.name)
+    # linkedin_draft.mdを解析
+    draft_file = selected / "linkedin_draft.md"
+    content_no_url, url_text, images = parse_linkedin_draft(draft_file)
 
-    # 画像一覧を表示
+    # 内容を表示
     print(f"\n✅ 選択フォルダ: {selected.name}")
     print(f"\n📷 添付される画像 ({len(images)}枚):")
     for i, img in enumerate(images):
-        print(f"   [{i+1}] {img.name}")
+        print(f"   [{i+1}] {Path(img).name}")
 
-    image_paths = [str(img) for img in images]
     folder_name = selected.name
 
-    return image_paths, folder_name
+    return content_no_url, url_text, images, folder_name
 
 
 def get_schedule_settings() -> int:
@@ -178,7 +229,7 @@ def get_schedule_settings() -> int:
             print("⚠️ 数字を入力してください")
 
 
-async def post_to_linkedin(images: list[str], schedule_days: int = 7):
+async def post_to_linkedin(content_no_url: str, url_text: str, images: list[str], schedule_days: int = 7):
     """LinkedInに投稿"""
     schedule_time = datetime.now() + timedelta(days=schedule_days)
 
@@ -272,7 +323,7 @@ async def post_to_linkedin(images: list[str], schedule_days: int = 7):
             await editor.click()
             await page.wait_for_timeout(500)
             # クリップボード経由で貼り付け
-            pyperclip.copy(CONTENT_NO_URL)
+            pyperclip.copy(content_no_url)
             await page.keyboard.press("Meta+v")  # macOSはMeta+v
             await page.wait_for_timeout(2000)
             print("   ✅ 完了", flush=True)
@@ -282,7 +333,7 @@ async def post_to_linkedin(images: list[str], schedule_days: int = 7):
             # 末尾に移動
             await page.keyboard.press("Meta+End")
             await page.wait_for_timeout(300)
-            pyperclip.copy(URL_TEXT)
+            pyperclip.copy(url_text)
             await page.keyboard.press("Meta+v")
             await page.wait_for_timeout(2000)
             print("   ✅ 完了", flush=True)
@@ -392,23 +443,30 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("📘 LinkedIn自動投稿スクリプト v3")
+    print("📘 LinkedIn自動投稿スクリプト v4")
     print("=" * 60)
     print("このスクリプトは以下を自動で行います:")
-    print("  1. インフォグラフィック画像の添付")
-    print("  2. 投稿コンテンツの入力")
+    print("  1. outputsフォルダからlinkedin_draft.mdを選択")
+    print("  2. 投稿コンテンツと画像を自動読み込み")
     print("  3. スケジュール予約の設定")
     print("=" * 60)
 
-    # Step 1: 画像フォルダを選択
+    # Step 1: 投稿フォルダを選択
     if args.folder is not None:
-        images, folder_name = select_image_folder_auto(args.folder)
+        content_no_url, url_text, images, folder_name = select_draft_folder_auto(args.folder)
     else:
-        images, folder_name = select_image_folder()
+        content_no_url, url_text, images, folder_name = select_draft_folder()
+
+    if not content_no_url:
+        print("\n❌ 投稿内容が選択されませんでした")
+        return
 
     if not images:
-        print("\n❌ 画像が選択されませんでした")
-        return
+        print("\n⚠️ 画像が見つかりませんでした。テキストのみで投稿しますか？")
+        confirm = input("(Enter=続行 / n=キャンセル): ").strip().lower()
+        if confirm == "n":
+            print("キャンセルしました")
+            return
 
     # Step 2: スケジュール設定
     schedule_days = args.days if args.auto else get_schedule_settings()
@@ -418,6 +476,8 @@ def main():
     print("\n" + "=" * 60)
     print("📋 設定確認")
     print("=" * 60)
+    print(f"📝 投稿内容: {len(content_no_url)}文字")
+    print(f"🔗 URL: {url_text.strip()}")
     print(f"📷 画像: {len(images)}枚")
     print(f"📅 予約: {schedule_time.strftime('%Y年%m月%d日 %H:%M')}")
     print("=" * 60)
@@ -429,7 +489,7 @@ def main():
             return
 
     # 実行
-    asyncio.run(post_to_linkedin(images, schedule_days))
+    asyncio.run(post_to_linkedin(content_no_url, url_text, images, schedule_days))
 
 
 if __name__ == "__main__":

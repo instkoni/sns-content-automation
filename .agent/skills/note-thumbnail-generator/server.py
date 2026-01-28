@@ -7,8 +7,10 @@ FastAPI + ngrokでCanvaアプリにデータを提供します
 
 import argparse
 import asyncio
+import base64
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -16,17 +18,25 @@ import time
 import webbrowser
 import requests
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 try:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
     import uvicorn
 except ImportError:
     print("エラー: 必要なパッケージがインストールされていません")
     print("以下のコマンドでインストールしてください:")
     print("pip install fastapi uvicorn")
-    print("pip install fastapi uvicorn")
     sys.exit(1)
+
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+    print("警告: google-generativeai がインストールされていません。画像生成機能は無効です。")
 
 from pathlib import Path
 
@@ -34,6 +44,20 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR / "config"
 GENRES_FILE = CONFIG_DIR / "genres.json"
+TEMPLATE_ELEMENTS_FILE = CONFIG_DIR / "template_elements.json"
+
+# 出力ディレクトリ（サムネイル保存先）
+OUTPUT_DIR = SCRIPT_DIR.parent.parent.parent / "articles" / "Notetitle"
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """テキストをクリップボードにコピー（macOS用）"""
+    try:
+        subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        return True
+    except Exception as e:
+        print(f"クリップボードへのコピーに失敗: {e}")
+        return False
 
 def load_genres():
     """ジャンル設定を読み込む"""
@@ -46,8 +70,22 @@ def load_genres():
         print(f"ジャンル設定読み込みエラー: {e}")
         return {}
 
+
+def load_template_elements():
+    """テンプレート要素設定を読み込む"""
+    try:
+        if TEMPLATE_ELEMENTS_FILE.exists():
+            with open(TEMPLATE_ELEMENTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        print(f"テンプレート要素設定読み込みエラー: {e}")
+        return {}
+
+
 # ジャンル設定をロード
 genres_config = load_genres()
+template_elements_config = load_template_elements()
 
 
 # グローバル変数
@@ -101,6 +139,122 @@ async def get_genre_config():
     return genres_config
 
 
+@app.get("/api/get-template-elements")
+async def get_template_elements():
+    """テンプレート要素設定を返す"""
+    print("📥 アクセス: /api/get-template-elements")
+    return template_elements_config
+
+
+@app.get("/api/get-latest-number")
+async def get_latest_number():
+    """出力ディレクトリをスキャンし次の番号を返す"""
+    print("📥 アクセス: /api/get-latest-number")
+
+    today = datetime.now().strftime("%Y%m%d")
+    max_number = 0
+
+    try:
+        if OUTPUT_DIR.exists():
+            # YYYYMMDD_Noteサムネイル(N).png パターンを検索
+            pattern = re.compile(r"^\d{8}_Noteサムネイル\((\d+)\)\.png$")
+
+            for file in OUTPUT_DIR.iterdir():
+                if file.is_file():
+                    match = pattern.match(file.name)
+                    if match:
+                        num = int(match.group(1))
+                        if num > max_number:
+                            max_number = num
+    except Exception as e:
+        print(f"ディレクトリスキャンエラー: {e}")
+
+    next_number = max_number + 1
+    suggested_filename = f"{today}_Noteサムネイル({next_number}).png"
+
+    result = {
+        "currentMax": max_number,
+        "nextNumber": next_number,
+        "suggestedFilename": suggested_filename
+    }
+    print(f"   結果: {result}")
+    return result
+
+
+@app.post("/api/generate-image")
+async def generate_image(request: Request):
+    """Gemini Imagenで画像を生成"""
+    print("📥 アクセス: /api/generate-image")
+
+    if not GENAI_AVAILABLE:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "google-generativeai がインストールされていません"}
+        )
+
+    try:
+        data = await request.json()
+        prompt = data.get("prompt", "")
+
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "プロンプトが指定されていません"}
+            )
+
+        print(f"   プロンプト: {prompt}")
+
+        # Gemini API キーの確認
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "GOOGLE_API_KEY または GEMINI_API_KEY が設定されていません"}
+            )
+
+        genai.configure(api_key=api_key)
+
+        # Imagen 3 を使用して画像生成
+        imagen_model = genai.ImageGenerationModel("imagen-3.0-generate-002")
+
+        result = imagen_model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            aspect_ratio="16:9",
+            safety_filter_level="block_only_high",
+            person_generation="allow_adult",
+        )
+
+        if result.images:
+            # 画像をBase64エンコード
+            image = result.images[0]
+            image_bytes = image._pil_image.tobytes() if hasattr(image, '_pil_image') else None
+
+            # PIL Imageから直接バイトを取得
+            import io
+            buffer = io.BytesIO()
+            image._pil_image.save(buffer, format="PNG")
+            image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+            print("   ✅ 画像生成成功")
+            return {
+                "success": True,
+                "image": f"data:image/png;base64,{image_base64}"
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "画像の生成に失敗しました"}
+            )
+
+    except Exception as e:
+        print(f"   ❌ 画像生成エラー: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"画像生成エラー: {str(e)}"}
+        )
+
+
 @app.post("/shutdown")
 async def shutdown():
     """サーバーを終了する"""
@@ -145,9 +299,12 @@ def start_ngrok(port):
         
         # 公開URLを取得
         public_url = get_ngrok_public_url()
-        
+
         if public_url:
             print(f"✓ ngrokが起動しました: {public_url}")
+            # クリップボードにコピー
+            if copy_to_clipboard(public_url):
+                print(f"✅ URLがクリップボードにコピーされました: {public_url}")
             return public_url
         else:
             print("エラー: ngrokの公開URLを取得できませんでした")

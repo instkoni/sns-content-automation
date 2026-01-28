@@ -1,3 +1,10 @@
-2026/01/23-01:04:23.188 4a5373 Reusing MANIFEST /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/IndexedDB/https_www.genspark.ai_0.indexeddb.leveldb/MANIFEST-000001
-2026/01/23-01:04:23.189 4a5373 Recovering log #7
-2026/01/23-01:04:23.221 4a5373 Reusing old log /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/IndexedDB/https_www.genspark.ai_0.indexeddb.leveldb/000007.log 
+2026/01/23-01:12:21.800 4a7a69 Reusing MANIFEST /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/IndexedDB/https_www.genspark.ai_0.indexeddb.leveldb/MANIFEST-000001
+2026/01/23-01:12:21.800 4a7a69 Recovering log #7
+2026/01/23-01:12:21.842 4a7a69 Reusing old log /Volumes/WDBLACK_2TB/Git/sns-content-automation/instkoni-automation/browser-data-sns/Default/IndexedDB/https_www.genspark.ai_0.indexeddb.leveldb/000007.log 
+2026/01/23-01:12:22.253 4a7a76 Level-0 table #12: started
+2026/01/23-01:12:22.276 4a7a76 Level-0 table #12: 631463 bytes OK
+2026/01/23-01:12:22.277 4a7a76 Delete type=0 #7
+2026/01/23-01:12:22.304 4a7a6a Compacting 1@1 + 1@2 files
+2026/01/23-01:12:22.315 4a7a6a Generated table #13@1: 4964 keys, 284188 bytes
+2026/01/23-01:12:22.315 4a7a6a Compacted 1@1 + 1@2 files => 284188 bytes
+2026/01/23-01:12:22.316 4a7a6a compacted to: files[ 0 0 1 0 0 0 0 ]

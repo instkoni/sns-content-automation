@@ -72,9 +72,17 @@ def generate_titles(article_content, genre_name, genres, prompts):
         keywords_hint=genre_info["keywords_hint"]
     )
     
-    # Gemini 3 Proを初期化（APIキー不要）
+    # Gemini 3 Proを初期化
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            print("エラー: GOOGLE_API_KEY環境変数が設定されていません")
+            sys.exit(1)
+            
+        genai.configure(api_key=api_key)
+        # model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        # モデル名を修正（最新の有効なモデル名を使用）
+        model = genai.GenerativeModel("gemini-1.5-pro")
         
         print("\nタイトルを生成中...")
         print(f"ジャンル: {genre_info['name']}")
